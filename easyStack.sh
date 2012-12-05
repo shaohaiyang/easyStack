@@ -2,7 +2,7 @@
 HOSTNAME="MyOpenStack"
 IPADDR="127.0.0.1"
 SCRIPT="easyStack.sh"
-COMMAND="/root/$SCRIPT"
+COMMAND=`pwd`"/$SCRIPT"
 KEYPAIR="Mykey"
 ## 选择虚拟技术，裸机使用kvm，虚拟机里面使用qemu
 VIRT_TYPE="kvm"
@@ -82,6 +82,7 @@ echo never > /sys/kernel/mm/redhat_transparent_hugepage/defrag
 ###
 setenforce 0
 sed -r -i '/^SELINUX=/s:.*:SELINUX=disabled:' /etc/sysconfig/selinux
+sed -r -i '/^SELINUX=/s:.*:SELINUX=disabled:' /etc/selinux/config
 ### 
 sed -r -i '/auth/s:.*:auth=no:g' /etc/qpidd.conf
 ###
@@ -302,7 +303,7 @@ done
 
 glance_add_image(){
 	if [ $# -ne 3 ];then
-		echo "$SCRIPT gls_addimage image_desc image_filename"
+		echo "$SCRIPT gls_add image_desc image_filename"
 	else
 		desc="$2"
 		filename=$3
@@ -331,6 +332,8 @@ openstack-db --service nova --init
 #openstack-config --set /etc/nova/nova.conf DEFAULT public_interface eth0
 
 openstack-config --set /etc/nova/nova.conf DEFAULT auth_strategy keystone
+openstack-config --set /etc/nova/nova.conf DEFAULT connection_type libvirt
+openstack-config --set /etc/nova/nova.conf DEFAULT libvirt_type $VIRT_TYPE
 #openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_tenant_name service
 #openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_user nova
 #openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_password nova
@@ -372,8 +375,8 @@ nova_create_network(){
 	nova-manage network create private \
 		--multi_host=T \
 		--bridge=br0 \
-		--bridge_interface=eth0 \
-		--fixed_range_v4=192.168.1.240/29 \
+		--bridge_interface=eth1 \
+		--fixed_range_v4=192.168.0.240/29 \
 		--num_networks=1 \
 		--network_size=8
 	### 设置外网网段
