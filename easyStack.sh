@@ -4,6 +4,9 @@ IPADDR="127.0.0.1"
 SCRIPT="easyStack.sh"
 COMMAND=`pwd`"/$SCRIPT"
 KEYPAIR="Mykey"
+TIME_SRV="133.100.11.8"
+ZONE="Asia/Shanghai"
+
 ## 选择虚拟技术，裸机使用kvm，虚拟机里面使用qemu
 VIRT_TYPE="kvm"
 
@@ -47,8 +50,7 @@ fi
 env_initalize(){
 ### install kvm virtual software
 rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-7.noarch.rpm
-yum -y install kvm virt-manager libvirt libvirt-python python-virtinst libvirt-client bridge-utils dnsmasq-utils
-
+yum -y install qemu-kvm qemu-kvm-tools kvm virt-manager libvirt libvirt-python python-virtinst libvirt-client bridge-utils dnsmasq-utils
 ### install openstack software
 yum --enablerepo=epel-testing install \
 	openstack-nova openstack-nova-novncproxy openstack-nova-consoleauth \
@@ -91,6 +93,21 @@ sed -r -i 's/#auth_unix_rw/auth_unix_rw/' /etc/libvirt/libvirtd.conf
 sed -r -i 's:^#fudge:fudge:g' /etc/ntp.conf
 sed -r -i 's:^#server.*127.127.1.0:server 127.127.1.0:g' /etc/ntp.conf
  
+### set timezone and language
+grep -w -q $ZONE /etc/sysconfig/clock
+if [ $? = 1 ];then
+        sed -r -i "s:ZONE=.*:ZONE=\"$ZONE\":" /etc/sysconfig/clock
+        cp -a /usr/share/zoneinfo/$ZONE /etc/localtime
+fi
+
+ntpdate -o3 $TIME_SRV
+
+sed -r -i '/nofile/d' /etc/security/limits.conf
+echo '* soft nofile 655350' >> /etc/security/limits.conf
+echo '* hard nofile 655350' >> /etc/security/limits.conf
+echo '#* soft memlock 104857' >> /etc/security/limits.conf
+echo '#* hard memlock 104857' >> /etc/security/limits.conf
+
 virsh net-autostart default --disable
 virsh net-destroy default
 ###
@@ -307,7 +324,12 @@ glance_add_image(){
 	else
 		desc="$2"
 		filename=$3
-		STRING="glance add name=\"$desc\" is_public=true container_format=ovf disk_format=qcow2 < $filename"
+		FORMAT="container_format=bare disk_format=raw"
+		file $filename | grep -q -i 'qcow'
+		[ $? = 0 ] && FORMAT="container_format=ovf disk_format=qcow2"
+		file $filename | grep -q -i 'iso'
+		[ $? = 0 ] && FORMAT="container_format=ovf disk_format=iso"
+		STRING="glance add name=\"$desc\" is_public=true $FORMAT < $filename"
 		eval $STRING
 	fi
 }
