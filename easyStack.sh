@@ -1,5 +1,5 @@
 #!/bin/sh
-HOSTNAME="MyOpenStack"
+HOSTNAME="OS-NODE1"
 IPADDR="127.0.0.1"
 SCRIPT="easyStack.sh"
 COMMAND=`pwd`"/$SCRIPT"
@@ -49,7 +49,8 @@ fi
 
 env_initalize(){
 ### install kvm virtual software
-rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-7.noarch.rpm
+#rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-7.noarch.rpm
+rpm -Uvh http://mirrors.ustc.edu.cn/fedora/epel/6/x86_64/epel-release-6-8.noarch.rpm
 yum -y install qemu-kvm qemu-kvm-tools kvm virt-manager libvirt libvirt-python python-virtinst libvirt-client bridge-utils dnsmasq-utils
 ### install openstack software
 yum --enablerepo=epel-testing install \
@@ -111,7 +112,7 @@ echo '#* hard memlock 104857' >> /etc/security/limits.conf
 virsh net-autostart default --disable
 virsh net-destroy default
 ###
-for svc in  mysqld libvirtd ntpd qpidd messagebus ntpd;do
+for svc in  httpd mysqld libvirtd ntpd qpidd messagebus ntpd;do
 	chkconfig $svc on && service $svc restart
 done
 }
@@ -397,12 +398,190 @@ nova_create_network(){
 	nova-manage network create private \
 		--multi_host=T \
 		--bridge=br0 \
-		--bridge_interface=eth1 \
-		--fixed_range_v4=192.168.0.240/29 \
+		--bridge_interface=eth0 \
+		--fixed_range_v4=192.168.1.240/29 \
 		--num_networks=1 \
 		--network_size=8
 	### 设置外网网段
 	nova-manage floating create 192.168.10.128/25
+}
+
+swift_init(){
+rm -rf /etc/rsyncd.conf
+rm -rf /etc/swift/swift_ring.sh
+rm -rf /etc/swift/account-server/*.conf
+rm -rf /etc/swift/container-server/*.conf
+rm -rf /etc/swift/object-server/*.conf
+rm -rf /etc/swift/*.gz
+rm -rf /etc/swift/backups/*
+#dd if=/dev/zero of=/var/lib/nova/swift-volumes.img bs=1M seek=1k count=0
+#mkfs.xfs -i size=1024 /var/lib/nova/swift-volumes.img
+#mount xfs loop,noatime,nodiratime,nobarrier,logbufs=8 0 0 to /etc/fstab
+#vgcreate swift-volumes $(losetup --show -f /var/lib/nova/swift-volumes.img)
+#vgchange -ay
+LOOP_DEV=$(losetup -a|awk -F: '/swift-volumes/{split($1,dev,"/")} {print dev[3]}')
+
+cat > /etc/swift/swift_ring.sh <<EOF
+swift-ring-builder object.builder create 18 3 1
+swift-ring-builder container.builder create 18 3 1
+swift-ring-builder account.builder create 18 3 1
+
+EOF
+
+for x in {1..3};do
+	i=`printf "%02d" $x`
+	mkdir -p /mnt/swift/node$i
+	ln -snf /mnt/swift/node$i /srv/
+
+cat >> /etc/rsyncd.conf <<EOF
+# General stuff
+uid = swift
+gid = swift
+log file = /var/log/rsyncd.log
+pid file = /var/run/rsyncd.pid
+address = 127.0.0.1
+
+# Account Server replication settings
+[account61$i]
+max connections = 25
+path = /srv/node$i/
+read only = false
+lock file = /var/lock/account60$i.lock
+
+# Container server replication settings
+[container62$i]
+max connections = 25
+path = /srv/node$i/
+read only = false
+lock file = /var/lock/container60$i.lock
+
+# Object Server replication settings
+[object63$i]
+max connections = 25
+path = /srv/node$i/
+read only = false
+lock file = /var/lock/object60$i.lock
+EOF
+
+############################################
+cat > /etc/swift/account-server/$i.conf <<EOF
+[DEFAULT]
+devices = /srv/node$i
+mount_check = false
+bind_ip = 0.0.0.0
+bind_port = 61$i
+workers = 3
+user = swift
+log_facility = LOG_LOCAL1
+ 
+[pipeline:main]
+pipeline = account-server
+
+[app:account-server]
+use = egg:swift#account
+ 
+[account-replicator]
+vm_test_mode = no
+
+[account-auditor]
+
+[account-reaper]
+EOF
+echo "swift-ring-builder account.builder add z$i-127.0.0.1:61$i/$LOOP_DEV 1" >> /etc/swift/swift_ring.sh
+
+cat >/etc/swift/container-server/$i.conf <<EOF
+[DEFAULT]
+devices = /srv/node$i
+mount_check = false
+bind_ip = 0.0.0.0
+bind_port = 62$i
+workers = 3
+user = swift
+log_facility = LOG_LOCAL2
+
+[pipeline:main]
+pipeline = container-server
+
+[app:container-server]
+use = egg:swift#container
+
+[container-replicator]
+vm_test_mode = no
+
+[container-updater]
+
+[container-auditor]
+
+[container-sync]
+EOF
+echo "swift-ring-builder container.builder add z$i-127.0.0.1:62$i/$LOOP_DEV 1" >> /etc/swift/swift_ring.sh
+
+cat > /etc/swift/object-server/$i.conf <<EOF
+[DEFAULT]
+devices = /srv/node$i
+mount_check = false
+bind_ip = 0.0.0.0
+bind_port = 63$i
+workers = 3
+user = swift
+log_facility = LOG_LOCAL3
+
+[pipeline:main]
+pipeline = object-server
+
+[app:object-server]
+use = egg:swift#object
+
+[object-replicator]
+vm_test_mode = no
+
+[object-updater]
+
+[object-auditor]
+EOF
+echo "swift-ring-builder object.builder add z$i-127.0.0.1:63$i/$LOOP_DEV 1" >> /etc/swift/swift_ring.sh
+done
+cat >> /etc/swift/swift_ring.sh <<EOF
+
+swift-ring-builder account.builder rebalance
+swift-ring-builder container.builder rebalance
+swift-ring-builder object.builder rebalance
+EOF
+############################################
+sed -r -i "/disable/s:.*:\tdisable = no:g" /etc/xinetd.d/rsync
+mkdir -p /var/log/swift
+chown -R swift.root /var/log/swift
+cat > /etc/rsyslog.d/10-swift.conf << EOF
+local0.*   /var/log/swift/proxy.log
+local1.*   /var/log/swift/account.log
+local2.*   /var/log/swift/container.log
+local3.*   /var/log/swift/object.log
+EOF
+
+openstack-config --set /etc/swift/swift.conf swift-hash swift_hash_path_suffix $(od -t x8 -N 8 -A n </dev/random)
+openstack-config --set /etc/swift/proxy-server.conf filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
+openstack-config --set /etc/swift/proxy-server.conf filter:keystone operator_roles "admin,Member"
+openstack-config --set /etc/swift/proxy-server.conf DEFAULT log_level "DEBUG"
+openstack-config --set /etc/swift/proxy-server.conf DEFAULT log_facility "LOG_LOCAL0"
+openstack-config --set /etc/swift/proxy-server.conf DEFAULT workers "3"
+
+cd /etc/swift
+chmod a+x /etc/swift/swift_ring.sh
+./swift_ring.sh
+cd -
+
+for svc in account container object proxy;do
+	chkconfig openstack-swift-$svc on && service openstack-swift-$svc restart
+done
+}
+
+swift_check(){
+	cd /etc/swift
+	for i in account container object;do
+		swift-ring-builder $i.builder
+		echo '------------------------------------'
+	done
+	cd -
 }
 
 case $1 in
@@ -442,10 +621,16 @@ case $1 in
 		nova_create_keypair;;
 	nova_addnet)
 		nova_create_network;;
+        swift_init)
+                swift_init;;
+        swift_check)
+                swift_check;;
 	*)
 		echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}env_initalize"
 		echo -e "${RED_COL}$SCRIPT ${GREEN_COL}keys_init|keys_adduser|keys_addtenant|keys_addrole|keys_addsrv|keys_addept|keys_bind|keys_list"
 		echo -e "${RED_COL}$SCRIPT ${GREEN_COL}gls_init|gls_add|gls_show|gls_list"
-		echo -en "${RED_COL}$SCRIPT ${GREEN_COL}nova_init|nova_addkey|nova_addnet|nova_check"
-		echo -e ${NORMAL_COL}
+		echo -e "${RED_COL}$SCRIPT ${GREEN_COL}nova_init|nova_addkey|nova_addnet|nova_check"
+                echo -e "${RED_COL}$SCRIPT ${GREEN_COL}swift_init|swift_check"
+		echo -en ${NORMAL_COL}
 esac
+
