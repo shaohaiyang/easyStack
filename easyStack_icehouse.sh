@@ -1,6 +1,6 @@
 #!/bin/sh
-HOSTNAME="UPYUN-M1"
-IPADDR="192.168.13.250"
+HOSTNAME=OPK-ZJ-M249
+IPADDR="192.168.13.249"
 VERSION="icehouse"
 SCRIPT="easyStack_$VERSION.sh"
 KEYPAIR="upyun"
@@ -102,7 +102,11 @@ sed -r -i 's:^#fudge:fudge:g' /etc/ntp.conf
 sed -r -i 's:^#server.*127.127.1.0:server 127.127.1.0:g' /etc/ntp.conf
 
 ###
-for svc in lvm2-monitor httpd mysqld libvirtd ntpd rabbitmq-server messagebus ntpd iptables memcached ksm ksmtuned tgtd;do
+for svc in ip6tables iscsi iscsid netcf-transaction cgconfig auditd rpcbind nfslock mdmonitor rpcgssd avahi-daemon blk-availability udev-post postfix;do
+	chkconfig $svc off && service $svc stop
+done
+
+for svc in lvm2-monitor httpd mysqld libvirtd rabbitmq-server messagebus ntpd iptables memcached ksm ksmtuned tgtd;do
 	chkconfig $svc on && service $svc stop && service $svc start
 done
 
@@ -486,7 +490,7 @@ nova_create_keypair(){
 }
 
 nova_create_network(){
-	nova network-create testnet --bridge br100 --multi-host T --fixed-range-v4 10.10.10.0/24 --dns1 8.8.8.8 --dns2 114.114.114.114 --gateway 10.10.10.1
+	nova network-create appnet --bridge br100 --multi-host T --fixed-range-v4 192.168.6.0/24 --dns1 8.8.8.8 --dns2 114.114.114.114 --gateway 192.168.6.1
 	#nova-manage floating create --ip_range=192.168.13.128/27  --pool public_ip
 }
 
