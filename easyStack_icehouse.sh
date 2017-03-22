@@ -1,38 +1,20 @@
 #!/bin/sh
-<<<<<<< HEAD
-HOSTNAME="yunchao-os"
-IPADDR="10.0.2.171"
-VNET="eth1#vnet#br8#10.0.5.60/28#10.0.0.130#8.8.8.8"
+HOSTNAME="UPYUN-M1"
+IPADDR="192.168.13.250"
+VERSION="icehouse"
+SCRIPT="easyStack_$VERSION.sh"
 KEYPAIR="upyun"
 PASSWD="upyun123"
-###
-VIRT_TYPE="kvm"
-TERM_TYPE="vnc"
-TIME_SRV="133.100.11.8"
-ZONE="Asia/Shanghai"
-HTTPD_CONF="/etc/openstack-dashboard/local_settings"
-VERSION="icehouse"
-SCRIPT="easyStack_$VERSION.sh"
-COMMAND=`pwd`"/$SCRIPT"
-
-=======
-HOSTNAME=OPK-ZJ-M249
-IPADDR="192.168.13.249"
-VERSION="icehouse"
-SCRIPT="easyStack_$VERSION.sh"
-KEYPAIR="upyun"
-PASSWD="password"
+ROOTPW="FPkGgdStb4(Z"
+#mysql -uroot -p"$ROOTPW" -e "set password=PASSWORD(\"$ROOTPW\");flush privileges" 
 TIME_SRV="133.100.11.8"
 ZONE="Asia/Shanghai"
 COMMAND=`pwd`"/$SCRIPT"
 
 VIRT_TYPE="kvm"
 
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 ###  user|pass|role|tenant
-ADMIN_SETTING="admin|admin_secret|admin|admin"
-SYSTEM_COMPONENT="nova|nova_secret|admin|service glance|glance_secret|admin|service swift|swift_secret|admin|service cinder|cinder_secret|admin|service"
-REGION="RegionOne"
+REGION="RegionXXX"
 KEYS_ADMIN_URL="$IPADDR:35357/v2.0"
 KEYS_URL="$IPADDR:5000/v2.0"
 IMAGE_URL="$IPADDR:9292/v1"
@@ -40,6 +22,8 @@ NOVA_URL="$IPADDR:8774/v2/\$(tenant_id)s"
 VOLUME_URL="$IPADDR:8776/v1/\$(tenant_id)s"
 OBG_STORE_URL="$IPADDR:8080/v1/AUTH_\$(tenant_id)s"
 EC2_URL="$IPADDR:8773/services/Cloud"
+readonly ADMIN_SETTING="admin|x|admin|service"
+readonly SYSTEM_COMPONENT="nova|x|admin|service glance|x|admin|service swift|x|admin|service cinder|x|admin|service"
 
 ### Color setting
 RED_COL="\\033[1;31m"  # red color
@@ -57,7 +41,7 @@ KS_ROLE_PRE="$KS_DIR/ks_roleid_"
 KS_TENANT_PRE="$KS_DIR/ks_tenantid_"
 ########################### function begin ##########################
 ADMIN_USER=`echo $ADMIN_SETTING|cut -d"|" -f1`
-ADMIN_PASS=`echo $ADMIN_SETTING|cut -d"|" -f2`
+ADMIN_PASS=$ADMIN_USER@$PASSWD
 ADMIN_ROLE=`echo $ADMIN_SETTING|cut -d"|" -f3`
 TENANT_NAME=`echo $ADMIN_SETTING|cut -d"|" -f4`
 
@@ -66,31 +50,15 @@ if [ `whoami` != "root" ]; then
 	echo "You should be as root."
 fi
 
-<<<<<<< HEAD
+[ -s $KS_RCONFIG$ADMIN_USER ] && source $KS_RCONFIG$ADMIN_USER
+
 ###
-rpm -qa|grep -iqE "rdo-release-icehouse"
-if [ $? != 0 ];then
-	### install kvm virtual software
-	#https://repos.fedorapeople.org/repos/openstack/openstack-icehouse/rdo-release-icehouse-4.noarch.rpm
-	yum -y install http://repos.fedorapeople.org/repos/openstack/openstack-icehouse/rdo-release-icehouse.rpm \
-                http://mirrors.zju.edu.cn/epel/6/i386/epel-release-6-8.noarch.rpm
-	yum -y update
-fi
+#service rabbitmq-server restart
+#rabbitmqctl change_password guest $PASSWD
+sed -r -i  "/ALLOWED_HOSTS/s^.*^ALLOWED_HOSTS = ['$IPADDR']^g" /etc/openstack-dashboard/local_settings 
+sed -r -i '/max_connections/d' /etc/my.cnf
+sed -r -i '$a max_connections=10000' /etc/my.cnf
 
-env_initalize(){
-echo -e "${GREEN_COL}Check HugeTLB${NORMAL_COL}"
-grep Hugepagesize /proc/meminfo
-
-echo -e "${GREEN_COL}Check CPU flags${NORMAL_COL}"
-grep flags /proc/cpuinfo |uniq |grep -E "ept|vpid|pdpe1gb|constant_tsc|svm|vmx" --color
-### install openstack software
-yum --enablerepo=openstack-icehouse,epel -y install vim-common vim-enhanced bc nc wget \
-        qemu-kvm qemu-kvm-tools kvm virt-manager libvirt libvirt-python python-virtinst libvirt-client \
-        iproute bridge-utils dnsmasq dnsmasq-utils avahi ntp ntpdate memcached mysql-server httpd mod_wsgi mod_ssl \
-        MySQL-python python-oslo-messaging python-kombu python-anyjson python-pip python-tempita python-memcached tcpdump \
-        dbus-libs rabbitmq-server scsi-target-utils iscsi-initiator-utils spice-html5 spice-server spice-client spice-protocol \
-        openvswitch openstack-utils openstack-keystone openstack-glance openstack-nova openstack-cinder openstack-dashboard
-=======
 env_initalize(){
 ### install kvm virtual software
 #https://repos.fedorapeople.org/repos/openstack/openstack-icehouse/rdo-release-icehouse-4.noarch.rpm
@@ -104,7 +72,6 @@ yum --enablerepo=openstack-icehouse,epel -y install \
 	python-kombu python-anyjson python-pip python-tempita python-memcached tcpdump nc wget \
 	rabbitmq-server scsi-target-utils iscsi-initiator-utils openvswitch \
 	openstack-utils openstack-keystone openstack-glance openstack-nova openstack-cinder openstack-dashboard
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 
 ###
 hostname  $HOSTNAME
@@ -128,13 +95,6 @@ if [ $? = 1 ];then
         cp -a /usr/share/zoneinfo/$ZONE /etc/localtime
 fi
 
-<<<<<<< HEAD
-sed -r -i "/^TIME_ZONE/s:=.*:=\"$ZONE\":" $HTTPD_CONF
-sed -r -i "/^ALLOWED_HOSTS/s:=.*:=['$IPADDR']:" $HTTPD_CONF
-
-sed -r -i '/iptable/d;$i\iptables -I INPUT -p TCP -s 0.0.0.0 --dport 80 -j ACCEPT' /etc/rc.d/rc.local
-=======
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 ntpdate -o3 $TIME_SRV
 
 sed -r -i '/nofile/d' /etc/security/limits.conf
@@ -153,14 +113,7 @@ sed -r -i 's:^#fudge:fudge:g' /etc/ntp.conf
 sed -r -i 's:^#server.*127.127.1.0:server 127.127.1.0:g' /etc/ntp.conf
 
 ###
-<<<<<<< HEAD
-=======
-for svc in ip6tables iscsi iscsid netcf-transaction cgconfig auditd rpcbind nfslock mdmonitor rpcgssd avahi-daemon blk-availability udev-post postfix;do
-	chkconfig $svc off && service $svc stop
-done
-
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
-for svc in lvm2-monitor httpd mysqld libvirtd rabbitmq-server messagebus ntpd iptables memcached ksm ksmtuned tgtd;do
+for svc in lvm2-monitor httpd mysqld libvirtd libvirt-guests ntpd rabbitmq-server messagebus ntpd iptables memcached ksm ksmtuned tgtd;do
 	chkconfig $svc on && service $svc stop && service $svc start
 done
 
@@ -168,6 +121,7 @@ done
 virsh net-autostart default --disable
 virsh net-destroy default
 
+mkdir -p /etc/tgt/conf.d
 cat > /etc/tgt/conf.d/cinder.conf <<EOF
 include /var/lib/cinder/volumes/*
 EOF
@@ -177,11 +131,6 @@ include /etc/tgt/conf.d/cinder.conf
 default-driver iscsi
 EOF
 chkconfig tgtd on && service tgtd restart
-
-###
-rabbitmqctl change_password guest $PASSWD
-<<<<<<< HEAD
-ln -snf /usr/bin/vim /bin/vi
 }
 
 env_clean(){
@@ -213,12 +162,11 @@ find /etc/pki/tls -name "ssl_ps*" | xargs rm -rf ;
 for x in $(df | grep "/lib/" | sed -e 's/.* //g') ; do
     umount $x ;
 done
-=======
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 }
 
 keystone_init(){
-openstack-db --init --service keystone --password $PASSWD
+openstack-db --drop --rootpw "$ROOTPW" --service keystone
+openstack-db --init --rootpw "$ROOTPW" --service keystone --password "$PASSWD"
 
 openssl rand -hex 10 > $KS_TOKEN_PRE$ADMIN_USER
 
@@ -233,13 +181,6 @@ export SERVICE_TOKEN=$(cat $KS_TOKEN_PRE$ADMIN_USER)
 EOF
 source $KS_RCONFIG$ADMIN_USER
 openstack-config --set /etc/keystone/keystone.conf DEFAULT admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
-<<<<<<< HEAD
-openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_host $IPADDR
-openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_port 5672
-openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_userid guest
-openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_password $PASSWD
-=======
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 sed -r -i '/OS_/d' ~/.bashrc
 sed -r -i '/_TOKEN/d' ~/.bashrc
 sed -r -i '/SERVICE_/d' ~/.bashrc
@@ -248,8 +189,9 @@ sed -r -i '/setenforce/d' ~/.bashrc
 cat "setenforce 0" >> ~/.bashrc
 
 keystone-manage pki_setup --keystone-user keystone --keystone-group keystone
-chkconfig openstack-keystone on && service openstack-keystone restart
-sleep 5
+mkdir -m 1777 -p /var/log/keystone; chown -R keystone.keystone /var/log/keystone
+chkconfig openstack-keystone on && service openstack-keystone stop
+service openstack-keystone restart
  
 echo $ADMIN_ROLE >> /tmp/sys_role
 echo $TENANT_NAME >> /tmp/sys_tenant
@@ -262,7 +204,7 @@ for item in $SYSTEM_COMPONENT;do
 done
 echo "admin" >> /tmp/sys_role
 echo "member" >> /tmp/sys_role
-echo "admin" >> /tmp/sys_tenant
+#echo "admin" >> /tmp/sys_tenant
 echo "service" >> /tmp/sys_tenant
 ROLE=`sort -u /tmp/sys_role`
 TENANT=`sort -u /tmp/sys_tenant`
@@ -281,7 +223,7 @@ echo
 
 for item in "$ADMIN_USER|$ADMIN_PASS|$ADMIN_ROLE|$TENANT_NAME" $SYSTEM_COMPONENT;do
 	user=`echo $item|cut -d"|" -f1`	
-	pass=`echo $item|cut -d"|" -f2`	
+	pass=$user@$PASSWD
 	role=`echo $item|cut -d"|" -f3`	
 	tenant=`echo $item|cut -d"|" -f4`	
 	printf "${GREEN_COL}%-15s\t${NORMAL_COL}" $user
@@ -408,63 +350,53 @@ keystone_add_endpoint(){
 }
 
 glance_init(){
-openstack-db --init --service glance --password $PASSWD
-
-<<<<<<< HEAD
-openstack-config --set /etc/glance/glance-registry.conf paste_deploy flavor keystone
-openstack-config --set /etc/glance/glance-api.conf paste_deploy flavor keystone
-openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_host $IPADDR
-openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_port 5672
-openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_userid guest
-openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_password $PASSWD
-=======
-openstack-config --set /etc/glance/glance-api.conf paste_deploy flavor keystone
-openstack-config --set /etc/glance/glance-registry.conf paste_deploy flavor keystone
-
-openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_userid guest
-openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_password $PASSWD
-
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
-openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
-openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
-
 cp /usr/share/glance/glance-api-dist-paste.ini /etc/glance/glance-api-paste.ini
 cp /usr/share/glance/glance-registry-dist-paste.ini /etc/glance/glance-registry-paste.ini
 chown -R root:glance /etc/glance/glance-api-paste.ini
 chown -R root:glance /etc/glance/glance-registry-paste.ini
+
+cat > /etc/glance/glance-api.conf <<EOF
+[DEFAULT]
+rabbit_host = $IPADDR
+rabbit_userid = guest
+rabbit_password = upyun123
+
+[database]
+connection=mysql://glance:upyun123@localhost/glance
+
+[paste_deploy]
+flavor = keystone
+config_file = /etc/glance/glance-api-paste.ini
+
+[store_type_location_strategy]
+[keystone_authtoken]
+EOF
+
+openstack-db --drop --rootpw "$ROOTPW" --service glance
+openstack-db --init --rootpw "$ROOTPW" --service glance --password "$PASSWD"
+
+openstack-config --set /etc/glance/glance-api.conf paste_deploy flavor keystone
+openstack-config --set /etc/glance/glance-registry.conf paste_deploy flavor keystone
+
+openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_host $IPADDR
+openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_userid guest
+openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_password $PASSWD
+
+openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
+openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
 
 openstack-config --set /etc/glance/glance-api.conf paste_deploy config_file /etc/glance/glance-api-paste.ini
 openstack-config --set /etc/glance/glance-api.conf paste_deploy flavor keystone
 openstack-config --set /etc/glance/glance-registry.conf paste_deploy config_file /etc/glance/glance-registry-paste.ini
 openstack-config --set /etc/glance/glance-registry.conf paste_deploy flavor keystone
 openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken auth_host $IPADDR
-<<<<<<< HEAD
-
-for item in $SYSTEM_COMPONENT;do
-        user=`echo $item|cut -d"|" -f1`
-	if [ $user = "glance" ];then
-	        pass=`echo $item|cut -d"|" -f2`
-		role=`echo $item|cut -d"|" -f3`
-		tenant=`echo $item|cut -d"|" -f4`
-		break
-	fi
-done
-openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_tenant_name $tenant
-openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_user $user
-openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_password $pass
-openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken auth_host $IPADDR
-openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_tenant_name $tenant
-openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_user $user
-openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_password $pass
-=======
 openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_tenant_name service
 openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_user glance
-openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_password glance_secret
+openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_password glance@$PASSWD
 openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken auth_host $IPADDR
 openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_tenant_name service
 openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_user glance
-openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_password glance_secret
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
+openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_password glance@$PASSWD
 
 for svc in registry api;do
 	chkconfig openstack-glance-$svc on && service openstack-glance-$svc restart
@@ -500,171 +432,163 @@ glance_show_image(){
 }
 
 nova_init(){
-<<<<<<< HEAD
-#xx=$IFS;IFS="#";read -r net_if net_name net_bridge net_ips net_gw net_dns <<<"$VNET";IFS=$xx
-	net_if=`echo $VNET|cut -d# -f1`
-	net_name=`echo $VNET|cut -d# -f2`
-	net_bridge=`echo $VNET|cut -d# -f3`
-	net_ips=`echo $VNET|cut -d# -f4`
-	net_gw=`echo $VNET|cut -d# -f5`
-	net_dns=`echo $VNET|cut -d# -f6`
-sed -r -i "/^dhcp-option=/d;\$a\dhcp-option=6,$net_dns" /etc/dnsmasq.conf
+cat > /etc/nova/nova.conf <<EOF
+[DEFAULT]
+debug = False
+verbose = False
+cpu_allocation_ratio = 16.0
+disk_allocation_ratio = 1.0
+ram_allocation_ratio = 1.6
+my_ip = $IPADDR
+auth_strategy = keystone
+security_group_api = nova
+api_paste_config = /etc/nova/api-paste.ini
+network_api_class = nova.network.api.API
+compute_scheduler_driver = nova.scheduler.simple.SimpleScheduler
+memcached_servers = $IPADDR:11211
+rpc_backend = rabbit
+rabbit_host = $IPADDR
+rabbit_port = 5672
+rabbit_userid = guest
+rabbit_password = password
+image_service = nova.image.glance.GlanceImageService
+glance_host = $IPADDR
+glance_port = 9292
+glance_protocol = http
+glance_api_servers = $IPADDR:9292
+novnc_enabled = True
+vnc_enabled = True
+vncserver_proxyclient_address = $IPADDR
+vncserver_listen = 0.0.0.0
+novncproxy_base_url = http://$IPADDR:6080/vnc_auto.html
+novncproxy_host=0.0.0.0
+novncproxy_port=6080
+dnsmasq_config_file = /etc/dnsmasq.conf
+firewall_driver = nova.virt.firewall.NoopFirewallDriver
+network_manager = nova.network.manager.FlatDHCPManager
+allow_same_net_traffic = False
+allow_resize_to_same_host = True
+send_arp_for_ha = True
+share_dhcp_address = False
+force_dhcp_release = True
+flat_network_bridge = br100
+flat_interface = bond0
+public_interface = eth0
+multi_host = True
+flat_injected = False
+libvirt_type = $VIRT_TYPE
+libvirt_inject_partition = -1
+libvirt_inject_password = False
+libvirt_vif_driver = nova.virt.libvirt.vif.LibvirtGenericVIFDriver
+connection_type = libvirt
+compute_driver = libvirt.LibvirtDriver
+use_deprecated_auth = false
+cc_host = $IPADDR
+osapi_host = $IPADDR
+osapi_port = 8774
+metadata_manager = nova.api.manager.MetadataManager
+metadata_host = $IPADDR
+metadata_listen = 0.0.0.0
+metadata_listen_port = 8775
+resume_guests_state_on_host_boot = True
+live_migration_flag = VIR_MIGRATE_UNDEFINE_SOURCE,VIR_MIGRATE_PEER2PEER,VIR_MIGRATE_LIVE
+dhcpbridge_flagfile = /etc/nova/nova.conf
+dhcpbridge = /usr/bin/nova-dhcpbridge
+volume_api_class = nova.volume.cinder.API
+cinder_catalog_info=volume:cinder:publicURL
+cinder_endpoint_template= http://$IPADDR:8776/v1/%(project_id)s
+[database]
+connection = mysql://nova:password@$IPADDR/nova
+[keystone_authtoken]
+auth_uri = http://$IPADDR:5000
+auth_url = http://$IPADDR:35357
+admin_user = nova
+admin_password = nova_secret
+admin_tenant_name = service
+EOF
 
-openstack-config --set /etc/nova/nova.conf DEFAULT debug False
-openstack-config --set /etc/nova/nova.conf DEFAULT verbose False
-openstack-config --set /etc/nova/nova.conf DEFAULT my_ip $IPADDR 
+cat > /etc/dnsmasq.conf <<EOF
+# subnet
+#dhcp-option=1,255.255.240.0
 
-openstack-config --set /etc/nova/nova.conf DEFAULT auth_strategy keystone
-openstack-config --set /etc/nova/nova.conf DEFAULT connection_type libvirt
-openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_userid guest
-openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_password $PASSWD
-openstack-config --set /etc/nova/nova.conf DEFAULT security_group_api nova
-openstack-config --set /etc/nova/nova.conf DEFAULT api_paste_config /etc/nova/api-paste.ini
-openstack-config --set /etc/nova/nova.conf DEFAULT network_api_class nova.network.api.API
-openstack-config --set /etc/nova/nova.conf DEFAULT compute_scheduler_driver nova.scheduler.simple.SimpleScheduler
-openstack-config --set /etc/nova/nova.conf DEFAULT memcached_servers $IPADDR:11211
-openstack-config --set /etc/nova/nova.conf DEFAULT rpc_backend rabbit
-openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_host $IPADDR
-openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_port 5672
-openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_userid guest
-openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_password $PASSWD
-openstack-config --set /etc/nova/nova.conf DEFAULT image_service nova.image.glance.GlanceImageService
-openstack-config --set /etc/nova/nova.conf DEFAULT glance_host $IPADDR
-openstack-config --set /etc/nova/nova.conf DEFAULT glance_port 9292
-openstack-config --set /etc/nova/nova.conf DEFAULT glance_protocol http
-openstack-config --set /etc/nova/nova.conf DEFAULT glance_api_servers $IPADDR:9292
+# router
+#dhcp-option=3,10.0.0.130
 
-if [ $TERM_TYPE ="vnc" ];then
-    openstack-config --set /etc/nova/nova.conf DEFAULT vnc_enabled True
-    openstack-config --set /etc/nova/nova.conf spice enabled False
-else
-    openstack-config --set /etc/nova/nova.conf DEFAULT vnc_enabled False
-    openstack-config --set /etc/nova/nova.conf spice enabled True
-fi
-openstack-config --set /etc/nova/nova.conf DEFAULT vncserver_listen 0.0.0.0
-openstack-config --set /etc/nova/nova.conf DEFAULT vncserver_proxyclient_address $IPADDR
-openstack-config --set /etc/nova/nova.conf DEFAULT novncproxy_base_url http://$IPADDR:6080/vnc_auto.html
+# DNS server
+dhcp-option=6,114.114.114.114
 
-openstack-config --set /etc/nova/nova.conf spice server_listen 0.0.0.0
-openstack-config --set /etc/nova/nova.conf spice keymap en-us
-openstack-config --set /etc/nova/nova.conf spice server_proxyclient_address $IPADDR
-openstack-config --set /etc/nova/nova.conf spice html5proxy_base_url http://$IPADDR:6082/spice_auto.html 
+# broadcast
+#dhcp-option=28,10.0.255.255
 
-openstack-config --set /etc/nova/nova.conf DEFAULT dnsmasq_config_file /etc/dnsmasq.conf
-openstack-config --set /etc/nova/nova.conf DEFAULT firewall_driver nova.virt.libvirt.firewall.IptablesFirewallDriver
-openstack-config --set /etc/nova/nova.conf DEFAULT network_manager nova.network.manager.FlatDHCPManager
-openstack-config --set /etc/nova/nova.conf DEFAULT allow_same_net_traffic False
-openstack-config --set /etc/nova/nova.conf DEFAULT allow_resize_to_same_host True
-openstack-config --set /etc/nova/nova.conf DEFAULT send_arp_for_ha True
-openstack-config --set /etc/nova/nova.conf DEFAULT share_dhcp_address False
-openstack-config --set /etc/nova/nova.conf DEFAULT force_dhcp_release True
-openstack-config --set /etc/nova/nova.conf DEFAULT flat_network_bridge $net_bridge
-openstack-config --set /etc/nova/nova.conf DEFAULT flat_interface $net_if
-openstack-config --set /etc/nova/nova.conf DEFAULT public_interface eth0
-openstack-config --set /etc/nova/nova.conf DEFAULT multi_host True
-openstack-config --set /etc/nova/nova.conf DEFAULT flat_injected False
-openstack-config --set /etc/nova/nova.conf DEFAULT libvirt_inject_partition -1
-openstack-config --set /etc/nova/nova.conf DEFAULT libvirt_inject_password False
-openstack-config --set /etc/nova/nova.conf DEFAULT libvirt_vif_driver nova.virt.libvirt.vif.LibvirtGenericVIFDriver
-openstack-config --set /etc/nova/nova.conf DEFAULT connection_type libvirt
-openstack-config --set /etc/nova/nova.conf DEFAULT compute_driver libvirt.LibvirtDriver
-openstack-config --set /etc/nova/nova.conf DEFAULT use_deprecated_auth False
-openstack-config --set /etc/nova/nova.conf DEFAULT cc_host $IPADDR
-openstack-config --set /etc/nova/nova.conf DEFAULT osapi_host $IPADDR
-openstack-config --set /etc/nova/nova.conf DEFAULT osapi_port 8774
-openstack-config --set /etc/nova/nova.conf DEFAULT metadata_manager nova.api.manager.MetadataManager
-openstack-config --set /etc/nova/nova.conf DEFAULT metadata_listen 0.0.0.0
-openstack-config --set /etc/nova/nova.conf DEFAULT metadata_listen_port 8775
-openstack-config --set /etc/nova/nova.conf DEFAULT resume_guests_state_on_host_boot True
-openstack-config --set /etc/nova/nova.conf DEFAULT live_migration_flag VIR_MIGRATE_UNDEFINE_SOURCE,VIR_MIGRATE_PEER2PEER,VIR_MIGRATE_LIVE
-openstack-config --set /etc/nova/nova.conf DEFAULT dhcpbridge_flagfile /etc/nova/nova.conf
-openstack-config --set /etc/nova/nova.conf DEFAULT dhcpbridge /usr/bin/nova-dhcpbridge
-openstack-config --set /etc/nova/nova.conf DEFAULT volume_api_class nova.volume.cinder.API
-openstack-config --set /etc/nova/nova.conf DEFAULT cinder_catalog_info volume:cinder:publicURL
-openstack-config --set /etc/nova/nova.conf DEFAULT cinder_endpoint_template "http://$IPADDR:8776/v1/%(project_id)s"
-openstack-config --set /etc/nova/nova.conf DEFAULT enabled_apis metadata,ec2,osapi_compute
+# NTP server
+#dhcp-option=42,10.0.6.250
 
-for item in $SYSTEM_COMPONENT;do
-        user=`echo $item|cut -d"|" -f1`
-	if [ $user = "nova" ];then
-	        pass=`echo $item|cut -d"|" -f2`
-		role=`echo $item|cut -d"|" -f3`
-		tenant=`echo $item|cut -d"|" -f4`
-		break
-	fi
-done
+# MTU
+dhcp-option-force=26,9000
+EOF
 
-openstack-config --set /etc/nova/nova.conf keystone_authtoken auth_uri http://$IPADDR:5000
-openstack-config --set /etc/nova/nova.conf keystone_authtoken auth_url http://$IPADDR:35357
-openstack-config --set /etc/nova/nova.conf keystone_authtoken admin_user $user
-openstack-config --set /etc/nova/nova.conf keystone_authtoken admin_password $pass
-openstack-config --set /etc/nova/nova.conf keystone_authtoken admin_tenant_name $tenant
-
-openstack-config --set /etc/nova/nova.conf libvirt virt_type $VIRT_TYPE
-openstack-config --set /etc/nova/api-paste.ini filter:authtoken auth_host $IPADDR
-openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_tenant_name $tenant
-openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_user $user
-openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_password $pass
-openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_token  $(cat $KS_TOKEN_PRE$ADMIN_USER)
-
-openstack-config --set /etc/nova/nova.conf database connection mysql://$user:$PASSWD@$IPADDR/nova
-openstack-db --init --service nova --password $PASSWD
-nova_start
-}
-
-nova_to_all(){
-	sed -r -i '/enabled_apis/d' /etc/nova/nova.conf
-	openstack-config --set /etc/nova/nova.conf DEFAULT enabled_apis metadata,ec2,osapi_compute
-	for svc in `ls /etc/rc.d/init.d/openstack-*`;do
-		svc=`basename $svc`
-		chkconfig $svc on && service $svc start
-	done
-	for svc in httpd rabbitmq-server memcached mysqld;do
-		chkconfig $svc on && service $svc start
-	done
-}
-
-=======
-openstack-db --init --service nova --password $PASSWD
+openstack-db --drop --rootpw "$ROOTPW" --service nova
 
 openstack-config --set /etc/nova/nova.conf DEFAULT auth_strategy keystone
 openstack-config --set /etc/nova/nova.conf DEFAULT connection_type libvirt
 openstack-config --set /etc/nova/nova.conf DEFAULT libvirt_type $VIRT_TYPE
+openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_host $IPADDR
 openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_userid guest
 openstack-config --set /etc/nova/nova.conf DEFAULT rabbit_password $PASSWD
+openstack-config --set /etc/nova/nova.conf keystone_authtoken admin_user nova
+openstack-config --set /etc/nova/nova.conf keystone_authtoken admin_password nova@$PASSWD
+openstack-config --set /etc/nova/nova.conf keystone_authtoken admin_tenant_name service
+openstack-config --set /etc/nova/nova.conf database connection mysql://nova:$PASSWD@$IPADDR/nova
 
 openstack-config --set /etc/nova/api-paste.ini filter:authtoken auth_host $IPADDR
 openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_tenant_name service
 openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_user nova
-openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_password nova_secret
+openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_password nova@$PASSWD
 openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_token  $(cat $KS_TOKEN_PRE$ADMIN_USER)
 
+openstack-db --init --rootpw "$ROOTPW" --service nova --password "$PASSWD"
 nova_start
 }
 
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
+nova_to_all(){
+	nova_to_control
+	for svc in openstack-nova-compute openstack-nova-api openstack-nova-network;do
+		chkconfig $svc on && service $svc start
+	done
+	# very important!!!
+	for svc in openstack-nova-metadata-api;do
+		chkconfig $svc off && service $svc stop
+	done
+}
+
 nova_to_control(){
 	sed -r -i '/enabled_apis/d' /etc/nova/nova.conf
+	for svc in libvirtd libvirt-guests ksm ksmtuned;do
+		chkconfig $svc on && service $svc start
+	done
+
+	for svc in lvm2-monitor httpd mysqld libvirtd libvirt-guests ntpd rabbitmq-server messagebus ntpd iptables memcached ksm ksmtuned tgtd;do
+		chkconfig $svc on && service $svc start
+	done
 	for svc in `ls /etc/rc.d/init.d/openstack-*`;do
 		svc=`basename $svc`
-		echo $svc|grep -iqE "nova-compute|nova-metadata-api|nova-network"
+		echo $svc|grep -iqE "nova-compute|nova-metadata-api"
 		if [ $? = 0 ];then
 			chkconfig $svc off && service $svc stop
 		else
 			chkconfig $svc on && service $svc start
 		fi
 	done
-<<<<<<< HEAD
-	for svc in httpd rabbitmq-server memcached mysqld;do
-		chkconfig $svc on && service $svc start
-	done
-=======
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 }
 
 nova_to_compute(){
+	# very important!!!
 	sed -r -i '/enabled_apis/d' /etc/nova/nova.conf
 	openstack-config --set /etc/nova/nova.conf DEFAULT enabled_apis metadata,ec2,osapi_compute
+	# very important!!!
+	for svc in libvirtd libvirt-guests ksm ksmtuned;do
+		chkconfig $svc on && service $svc start
+	done
 	for svc in `ls /etc/rc.d/init.d/openstack-*`;do
 		svc=`basename $svc`
 		echo $svc|grep -iqE "nova-compute|nova-metadata-api|nova-network"
@@ -680,15 +604,40 @@ nova_to_compute(){
 }
 
 nova_start(){
-	for svc in novncproxy api conductor scheduler cert consoleauth; do
-		chkconfig openstack-nova-$svc on && service openstack-nova-$svc start
-	done 
+	grep -iq enabled_apis /etc/nova/nova.conf
+	if [ $? = 0 ];then
+		for svc in compute metadata-api network;do
+			chkconfig openstack-nova-$svc on && service openstack-nova-$svc start
+		done 
+		for svc in openstack-nova-api;do
+			chkconfig $svc off && service $svc stop
+		done
+	else
+		for svc in novncproxy api conductor scheduler cert consoleauth; do
+			chkconfig openstack-nova-$svc on && service openstack-nova-$svc start
+		done 
+		for svc in openstack-nova-metadata-api;do
+			chkconfig $svc off && service $svc stop
+		done
+	fi
+
+	sed -r -i '/VNC_ENABLE/d' /etc/rc.d/rc.local
+	echo -en "VNC_ENABLE=\`iptables -L -vn --line-number|awk '/:6080/{print \$1}'\`\nif [ -z \"\$VNC_ENABLE\" ];then\n\tiptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 6080 -j ACCEPT #VNC_ENABLE\nfi\t#VNC_ENABLE" >> /etc/rc.d/rc.local
 }
 
 nova_stop(){
-	for svc in novncproxy api conductor scheduler cert consoleauth; do
-		chkconfig openstack-nova-$svc on && service openstack-nova-$svc stop
-	done 
+	grep -iq enabled_apis /etc/nova/nova.conf
+	if [ $? = 0 ];then
+		for svc in compute metadata-api network api;do
+			chkconfig openstack-nova-$svc off && service openstack-nova-$svc stop
+		done 
+	else
+		for svc in novncproxy api conductor scheduler cert consoleauth api; do
+			chkconfig openstack-nova-$svc off && service openstack-nova-$svc stop
+		done 
+	fi
+
+	sed -r -i '/VNC_ENABLE/d' /etc/rc.d/rc.local
 }
 
 nova_restart(){
@@ -747,30 +696,17 @@ nova_create_keypair(){
 }
 
 nova_create_network(){
-<<<<<<< HEAD
-	# xx=$IFS;IFS="#";read -r net_if net_name net_bridge net_ips net_gw net_dns <<<"$VNET";IFS=$xx
-	net_if=`echo $VNET|cut -d# -f1`
-	net_name=`echo $VNET|cut -d# -f2`
-	net_bridge=`echo $VNET|cut -d# -f3`
-	net_ips=`echo $VNET|cut -d# -f4`
-	net_gw=`echo $VNET|cut -d# -f5`
-	net_dns=`echo $VNET|cut -d# -f6`
-	#echo $net_if $net_name $net_bridge $net_ips $net_gw $net_dns
-	nova network-create $net_name --bridge $net_bridge --multi-host T --fixed-range-v4 $net_ips --dns1 $net_dns --dns2 114.114.114.114 --gateway $net_gw
-
+	nova network-create upnet --bridge br100 --multi-host T --fixed-range-v4 10.0.6.64/25 --dns1 114.114.114.114 --dns2 8.8.8.8 --gateway 10.0.0.130
 	#nova-manage floating create --ip_range=192.168.13.128/27  --pool public_ip
 }
 nova_addrule(){
 	nova secgroup-add-rule default tcp 22 22 0.0.0.0/0
+	nova secgroup-add-rule default tcp 8080 8080 0.0.0.0/0
+	nova secgroup-add-rule default tcp 6080 6080 0.0.0.0/0
 	nova secgroup-add-rule default udp 68 68 0.0.0.0/0
 	nova secgroup-add-rule default udp 123 123 0.0.0.0/0
 	nova secgroup-add-rule default icmp -1 -1 0.0.0.0/0
 }
-=======
-	nova network-create appnet --bridge br100 --multi-host T --fixed-range-v4 192.168.6.0/24 --dns1 8.8.8.8 --dns2 114.114.114.114 --gateway 192.168.6.1
-	#nova-manage floating create --ip_range=192.168.13.128/27  --pool public_ip
-}
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 
 swift_init(){
 #dd if=/dev/zero of=/var/lib/nova/swift-volumes.img bs=1M seek=1k count=0
@@ -978,89 +914,77 @@ swift_check(){
 }
 
 cinder_init(){
-<<<<<<< HEAD
-vgdisplay |grep -q "VG Name.*cinder-volumes"
-[ $? != 0 ] && echo -en "${RED_COL}Error: ${NORMAL_COL}Not found VG \"cinder-volumes\"\n" && exit 0
-=======
-openstack-db --init --service cinder --password $PASSWD
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
+cat > /etc/cinder/cinder.conf <<EOF
+[DEFAULT]
+debug = False
+verbose = False
+rootwrap_config = /etc/cinder/rootwrap.conf
+api_paste_config = /etc/cinder/api-paste.ini
+auth_strategy = keystone
+glance_host = $IPADDR
+memcached_servers = $IPADDR:11211
+rpc_backend = rabbit
+rabbit_host = $IPADDR
+rabbit_port = 5672
+rabbit_userid = guest
+rabbit_password = password
+#iscsiadm -m discovery -t sendtargets -p x.x.x.x:3260
+iscsi_helper = tgtadm
+iscsi_target_prefix = iqn.2011-11.com.upyun:
+iscsi_ip_address = $IPADDR
+iscsi_port = 3260
+volume_group = cinder-volumes
+volume_name_template = volume-%s
+state_path = /var/lib/cinder
+volumes_dir = /var/lib/cinder/volumes
+volume_driver = cinder.volume.drivers.lvm.LVMISCSIDriver
+volume_api_class=cinder.volume.api.API
+osapi_volume_listen=0.0.0.0
+osapi_volume_listen_port=8776
+osapi_volume_workers=5
+compute_api_class=cinder.compute.nova.API
+
+#[keymgr]
+#identity_uri = http://$IPADDR:35357
+#auth_uri = identity_uri
+#auth_url = http://$IPADDR:35357
+#admin_user = cinder
+#admin_password = cinder_secret
+#admin_tenant_name = service
+
+[database]
+connection = mysql://cinder:password@$IPADDR/cinder
+EOF
 
 openstack-config --set /etc/cinder/cinder.conf DEFAULT auth_strategy keystone
-
-openstack-config --set /etc/cinder/cinder.conf keymgr auth_uri http://$IPADDR:5000
-openstack-config --set /etc/cinder/cinder.conf keymgr auth_url http://$IPADDR:35357
-openstack-config --set /etc/cinder/cinder.conf keymgr auth_uri identity_uri http://$IPADDR:35357
-<<<<<<< HEAD
-
-for item in $SYSTEM_COMPONENT;do
-        user=`echo $item|cut -d"|" -f1`
-	if [ $user = "cinder" ];then
-	        pass=`echo $item|cut -d"|" -f2`
-		role=`echo $item|cut -d"|" -f3`
-		tenant=`echo $item|cut -d"|" -f4`
-		break
-	fi
-done
-openstack-config --set /etc/cinder/cinder.conf keymgr identity_uri http://$IPADDR:35357
-openstack-config --set /etc/cinder/cinder.conf keymgr auth_uri identity_uri
-openstack-config --set /etc/cinder/cinder.conf keymgr auth_url = http://$IPADDR:35357
-openstack-config --set /etc/cinder/cinder.conf keymgr admin_user $user
-openstack-config --set /etc/cinder/cinder.conf keymgr admin_password $pass
-openstack-config --set /etc/cinder/cinder.conf keymgr admin_tenant_name $tenant
-
-openstack-config --set /etc/cinder/cinder.conf DEFAULT debug False
-openstack-config --set /etc/cinder/cinder.conf DEFAULT verbose False
-openstack-config --set /etc/cinder/cinder.conf DEFAULT rootwrap_config /etc/cinder/rootwrap.conf
-openstack-config --set /etc/cinder/cinder.conf DEFAULT api_paste_config /etc/cinder/api-paste.ini
-openstack-config --set /etc/cinder/cinder.conf DEFAULT auth_strategy keystone
-openstack-config --set /etc/cinder/cinder.conf DEFAULT glance_host $IPADDR
-openstack-config --set /etc/cinder/cinder.conf DEFAULT memcached_servers $IPADDR:11211
-=======
-openstack-config --set /etc/cinder/cinder.conf keymgr admin_user cinder
-openstack-config --set /etc/cinder/cinder.conf keymgr admin_password cinder_secret
-openstack-config --set /etc/cinder/cinder.conf keymgr admin_tenant_name service
-
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
+#openstack-config --set /etc/cinder/cinder.conf keymgr auth_uri http://$IPADDR:5000
+#openstack-config --set /etc/cinder/cinder.conf keymgr auth_url http://$IPADDR:35357
+#openstack-config --set /etc/cinder/cinder.conf keymgr auth_uri identity_uri http://$IPADDR:35357
+#openstack-config --set /etc/cinder/cinder.conf keymgr admin_user cinder
+#openstack-config --set /etc/cinder/cinder.conf keymgr admin_password cinder@$PASSWD
+#openstack-config --set /etc/cinder/cinder.conf keymgr admin_tenant_name service
 openstack-config --set /etc/cinder/cinder.conf DEFAULT rpc_backend rabbit
 openstack-config --set /etc/cinder/cinder.conf DEFAULT rabbit_host $IPADDR
 openstack-config --set /etc/cinder/cinder.conf DEFAULT rabbit_port 5672
 openstack-config --set /etc/cinder/cinder.conf DEFAULT rabbit_userid guest
 openstack-config --set /etc/cinder/cinder.conf DEFAULT rabbit_password $PASSWD
-<<<<<<< HEAD
-openstack-config --set /etc/cinder/cinder.conf DEFAULT iscsi_helper tgtadm
-openstack-config --set /etc/cinder/cinder.conf DEFAULT iscsi_target_prefix iqn.2011-11.com.upyun:
-openstack-config --set /etc/cinder/cinder.conf DEFAULT iscsi_ip_address $IPADDR
-openstack-config --set /etc/cinder/cinder.conf DEFAULT iscsi_port 3260
-openstack-config --set /etc/cinder/cinder.conf DEFAULT volume_group cinder-volumes
-openstack-config --set /etc/cinder/cinder.conf DEFAULT volume_name_template volume-%s
-openstack-config --set /etc/cinder/cinder.conf DEFAULT state_path /var/lib/cinder
-openstack-config --set /etc/cinder/cinder.conf DEFAULT volumes_dir /var/lib/cinder/volumes
-openstack-config --set /etc/cinder/cinder.conf DEFAULT volume_driver cinder.volume.drivers.lvm.LVMISCSIDriver
-openstack-config --set /etc/cinder/cinder.conf DEFAULT osapi_volume_listen 0.0.0.0
-openstack-config --set /etc/cinder/cinder.conf DEFAULT osapi_volume_listen_port 8776
-openstack-config --set /etc/cinder/cinder.conf DEFAULT osapi_volume_workers 5
-openstack-config --set /etc/cinder/cinder.conf DEFAULT volume_api_class cinder.volume.api.API
-openstack-config --set /etc/cinder/cinder.conf DEFAULT compute_api_class cinder.compute.nova.API
-openstack-config --set /etc/cinder/cinder.conf keystone_authtoken auth_uri http://$IPADDR:5000
-openstack-config --set /etc/cinder/cinder.conf keystone_authtoken auth_host $IPADDR
-openstack-config --set /etc/cinder/cinder.conf keystone_authtoken auth_protocol http
-openstack-config --set /etc/cinder/cinder.conf keystone_authtoken auth_port 35357
-openstack-config --set /etc/cinder/cinder.conf keystone_authtoken admin_user $user
-openstack-config --set /etc/cinder/cinder.conf keystone_authtoken admin_password $pass
-openstack-config --set /etc/cinder/cinder.conf keystone_authtoken admin_tenant_name $tenant
-
-openstack-config --set /etc/cinder/cinder.conf database connection mysql://$user:$PASSWD@$IPADDR/cinder
-openstack-db --init --service cinder --password $PASSWD
-=======
-
 openstack-config --set /etc/cinder/cinder.conf DEFAULT glance_host $IPADDR
 openstack-config --set /etc/cinder/cinder.conf DEFAULT iscsi_helper tgtadm
 openstack-config --set /etc/cinder/cinder.conf DEFAULT volume_group cinder-volumes
 openstack-config --set /etc/cinder/cinder.conf DEFAULT state_path /var/lib/cinder
 openstack-config --set /etc/cinder/cinder.conf DEFAULT volumes_dir /var/lib/cinder/volumes
-
 openstack-config --set /etc/cinder/cinder.conf database connection mysql://cinder:$PASSWD@$IPADDR/cinder
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
+
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_protocol http
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_host $IPADDR
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_port 35357
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_uri http://$IPADDR:5000
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_tenant_name service
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_user cinder
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_password cinder@$PASSWD
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_token  $(cat $KS_TOKEN_PRE$ADMIN_USER)
+
+openstack-db --init --rootpw "$ROOTPW" --service cinder --password "$PASSWD"
 
 mkdir -p /var/lib/cinder/volumes
 chown -R cinder.cinder /var/lib/cinder/volumes
@@ -1073,11 +997,8 @@ done
 case $1 in
 	env_initalize)
 		env_initalize;;
-<<<<<<< HEAD
 	env_clean)
 		env_clean;;
-=======
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 	keys_init)
 		keystone_init;;
 	keys_adduser)
@@ -1118,20 +1039,14 @@ case $1 in
 		nova_create_keypair "$@";;
 	nova_addnet)
 		nova_create_network;;
-<<<<<<< HEAD
 	nova_addrule)
 		nova_addrule;;
-=======
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 	nova_to_control)
 		nova_to_control;;
 	nova_to_compute)
 		nova_to_compute;;
-<<<<<<< HEAD
 	nova_to_all)
 		nova_to_all;;
-=======
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
         swift_init)
                 swift_init;;
 	swift_start)
@@ -1149,20 +1064,12 @@ case $1 in
 	cinder_restart)
 		cinder_restart;;
 	*)
-<<<<<<< HEAD
-		echo -e "${BLUE_COL}$SCRIPT ${YELLOW_COL}env_initalize | ${RED_COL}env_clean"
-		echo -e "${BLUE_COL}$SCRIPT ${GREEN_COL}keys_init|keys_adduser|keys_addtenant|keys_addrole|keys_addsrv|keys_addept|keys_bind|keys_list"
-		echo -e "${BLUE_COL}$SCRIPT ${GREEN_COL}gls_init|gls_add|gls_show|gls_list"
-		echo -e "${BLUE_COL}$SCRIPT ${GREEN_COL}cinder_init|cinder_stop|cinder_start|cinder_restart|cinder_check"
-		echo -e "${BLUE_COL}$SCRIPT ${GREEN_COL}swift_init|swift_start|swift_stop|swift_check"
-		echo -e "${BLUE_COL}$SCRIPT ${GREEN_COL}nova_init|nova_to_all|nova_to_control|nova_to_compute|nova_start|nova_stop|nova_restart|nova_addkey|nova_addnet|nova_addrule|nova_check"
-=======
-		echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}env_initalize"
+		echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}env_initalize|env_clean"
 		echo -e "${RED_COL}$SCRIPT ${GREEN_COL}keys_init|keys_adduser|keys_addtenant|keys_addrole|keys_addsrv|keys_addept|keys_bind|keys_list"
 		echo -e "${RED_COL}$SCRIPT ${GREEN_COL}gls_init|gls_add|gls_show|gls_list"
-		echo -e "${RED_COL}$SCRIPT ${GREEN_COL}nova_init|nova_to_control|nova_to_compute|nova_start|nova_stop|nova_restart|nova_addkey|nova_addnet|nova_check"
+		echo -e "${RED_COL}$SCRIPT ${GREEN_COL}nova_init|nova_to_all|nova_to_control|nova_to_compute|nova_start|nova_stop|nova_restart|nova_addkey|nova_addnet|nova_addrule|nova_check"
 		echo -e "${RED_COL}$SCRIPT ${GREEN_COL}cinder_init|cinder_stop|cinder_start|cinder_restart|cinder_check"
                 echo -e "${RED_COL}$SCRIPT ${GREEN_COL}swift_init|swift_start|swift_stop|swift_check"
->>>>>>> a77974fa40ec822e968dae2e89364a463ac5380c
 		echo -en ${NORMAL_COL}
 esac
+
