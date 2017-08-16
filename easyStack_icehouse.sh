@@ -526,6 +526,9 @@ dhcp-option=6,114.114.114.114
 
 # MTU
 dhcp-option-force=26,9000
+
+cache-size=10000
+no-ping
 EOF
 
 openstack-db --drop --rootpw "$ROOTPW" --service nova
