@@ -55,6 +55,7 @@ fi
 ###
 #service rabbitmq-server restart
 #rabbitmqctl change_password guest $PASSWD
+#exit
 sed -r -i  "/ALLOWED_HOSTS/s^.*^ALLOWED_HOSTS = ['$IPADDR']^g" /etc/openstack-dashboard/local_settings 
 sed -r -i '/max_connections/d' /etc/my.cnf
 sed -r -i '$a max_connections=10000' /etc/my.cnf
@@ -697,8 +698,10 @@ nova_create_keypair(){
 
 nova_create_network(){
 	nova network-create upnet --bridge br100 --multi-host T --fixed-range-v4 10.0.6.64/25 --dns1 114.114.114.114 --dns2 8.8.8.8 --gateway 10.0.0.130
+    #mysql -uroot -p"$ROOTPW" nova -e "update fixed_ips set reserved ='1'"
 	#nova-manage floating create --ip_range=192.168.13.128/27  --pool public_ip
 }
+
 nova_addrule(){
 	nova secgroup-add-rule default tcp 22 22 0.0.0.0/0
 	nova secgroup-add-rule default tcp 8080 8080 0.0.0.0/0
