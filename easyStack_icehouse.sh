@@ -602,7 +602,7 @@ nova_to_compute(){
 			chkconfig $svc off && service $svc stop
 		fi
 	done
-	for svc in httpd rabbitmq-server memcached mysqld;do
+	for svc in httpd rabbitmq-server memcached mysqld ntpd;do
 		chkconfig $svc off && service $svc stop
 	done
 }
@@ -667,7 +667,8 @@ cinder_restart(){
 }
 
 nova_show(){
-	nova-manage service list
+	#nova-manage service list
+	nova service-list
 	nova flavor-list
 	nova net-list
 	nova-manage network list
