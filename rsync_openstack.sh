@@ -1,6 +1,13 @@
 #!/bin/sh
-SSH="ssh -i /root/.ssh/hzup.ssh -p65422"
+SSH="ssh -i /root/.ssh/hzup.ssh -p65422 -o StrictHostKeyChecking=no "
 SERVER="192.168.13.236#OPK-ZJ-FUD-C236"
+
+cat > /var/lib/nova/.ssh/config <<EOF
+StrictHostKeyChecking no
+User nova
+Port 65422
+Identityfile ~/.ssh/id_rsa
+EOF
 
 STRING=
 for SRV in $SERVER;do
