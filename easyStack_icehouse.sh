@@ -1,11 +1,11 @@
 #!/bin/sh
-HOSTNAME="UPYUN-M1"
-IPADDR="192.168.13.250"
+HOSTNAME="OPK-HKG-M30"
+IPADDR="158.118.218.30"
 VERSION="icehouse"
 SCRIPT="easyStack_$VERSION.sh"
 KEYPAIR="upyun"
-PASSWD="upyun123"
-ROOTPW="FPkGgdStb4(Z"
+PASSWD="xxxxxx"
+ROOTPW="xxxxxx"
 #mysql -uroot -p"$ROOTPW" -e "set password=PASSWORD(\"$ROOTPW\");flush privileges" 
 TIME_SRV="133.100.11.8"
 ZONE="Asia/Shanghai"
@@ -14,7 +14,7 @@ COMMAND=`pwd`"/$SCRIPT"
 VIRT_TYPE="kvm"
 
 ###  user|pass|role|tenant
-REGION="RegionXXX"
+REGION="RegionHK1"
 KEYS_ADMIN_URL="$IPADDR:35357/v2.0"
 KEYS_URL="$IPADDR:5000/v2.0"
 IMAGE_URL="$IPADDR:9292/v1"
@@ -63,8 +63,8 @@ sed -r -i '$a max_connections=10000' /etc/my.cnf
 env_initalize(){
 ### install kvm virtual software
 #https://repos.fedorapeople.org/repos/openstack/openstack-icehouse/rdo-release-icehouse-4.noarch.rpm
-yum -y install http://repos.fedorapeople.org/repos/openstack/openstack-icehouse/rdo-release-icehouse.rpm 
-yum -y update
+#yum -y install http://repos.fedorapeople.org/repos/openstack/openstack-icehouse/rdo-release-icehouse.rpm 
+#yum -y update
 
 ### install openstack software
 yum --enablerepo=openstack-icehouse,epel -y install \
@@ -96,7 +96,7 @@ if [ $? = 1 ];then
         cp -a /usr/share/zoneinfo/$ZONE /etc/localtime
 fi
 
-ntpdate -o3 $TIME_SRV
+ntpdate -o3 -u $TIME_SRV
 
 sed -r -i '/nofile/d' /etc/security/limits.conf
 echo '* soft nofile 655350' >> /etc/security/limits.conf
@@ -121,6 +121,9 @@ done
 ###
 virsh net-autostart default --disable
 virsh net-destroy default
+
+service rabbitmq-server restart
+rabbitmqctl change_password guest $PASSWD
 
 mkdir -p /etc/tgt/conf.d
 cat > /etc/tgt/conf.d/cinder.conf <<EOF
@@ -360,7 +363,7 @@ cat > /etc/glance/glance-api.conf <<EOF
 [DEFAULT]
 rabbit_host = $IPADDR
 rabbit_userid = guest
-rabbit_password = upyun123
+rabbit_password = $PASSWD
 
 [database]
 connection=mysql://glance:upyun123@localhost/glance
@@ -451,15 +454,15 @@ rpc_backend = rabbit
 rabbit_host = $IPADDR
 rabbit_port = 5672
 rabbit_userid = guest
-rabbit_password = password
+rabbit_password = $PASSWD
 image_service = nova.image.glance.GlanceImageService
 glance_host = $IPADDR
 glance_port = 9292
 glance_protocol = http
 glance_api_servers = $IPADDR:9292
+vncserver_proxyclient_address = $IPADDR
 novnc_enabled = True
 vnc_enabled = True
-vncserver_proxyclient_address = $IPADDR
 vncserver_listen = 0.0.0.0
 novncproxy_base_url = http://$IPADDR:6080/vnc_auto.html
 novncproxy_host=0.0.0.0
@@ -602,7 +605,7 @@ nova_to_compute(){
 			chkconfig $svc off && service $svc stop
 		fi
 	done
-	for svc in httpd rabbitmq-server memcached mysqld;do
+	for svc in httpd rabbitmq-server memcached mysqld ntpd;do
 		chkconfig $svc off && service $svc stop
 	done
 }
@@ -610,19 +613,13 @@ nova_to_compute(){
 nova_start(){
 	grep -iq enabled_apis /etc/nova/nova.conf
 	if [ $? = 0 ];then
-		for svc in compute metadata-api network;do
-			chkconfig openstack-nova-$svc on && service openstack-nova-$svc start
-		done 
-		for svc in openstack-nova-api;do
-			chkconfig $svc off && service $svc stop
-		done
-	else
 		for svc in novncproxy api conductor scheduler cert consoleauth; do
 			chkconfig openstack-nova-$svc on && service openstack-nova-$svc start
 		done 
-		for svc in openstack-nova-metadata-api;do
-			chkconfig $svc off && service $svc stop
-		done
+	else
+		for svc in compute metadata-api network;do
+			chkconfig openstack-nova-$svc on && service openstack-nova-$svc start
+		done 
 	fi
 
 	sed -r -i '/VNC_ENABLE/d' /etc/rc.d/rc.local
@@ -632,11 +629,11 @@ nova_start(){
 nova_stop(){
 	grep -iq enabled_apis /etc/nova/nova.conf
 	if [ $? = 0 ];then
-		for svc in compute metadata-api network api;do
+		for svc in novncproxy api conductor scheduler cert consoleauth; do
 			chkconfig openstack-nova-$svc off && service openstack-nova-$svc stop
 		done 
 	else
-		for svc in novncproxy api conductor scheduler cert consoleauth api; do
+		for svc in compute metadata-api network;do
 			chkconfig openstack-nova-$svc off && service openstack-nova-$svc stop
 		done 
 	fi
@@ -704,7 +701,6 @@ nova_create_network(){
     #mysql -uroot -p"$ROOTPW" nova -e "update fixed_ips set reserved ='1'"
 	#nova-manage floating create --ip_range=192.168.13.128/27  --pool public_ip
 }
-
 nova_addrule(){
 	nova secgroup-add-rule default tcp 22 22 0.0.0.0/0
 	nova secgroup-add-rule default tcp 8080 8080 0.0.0.0/0
@@ -933,7 +929,7 @@ rpc_backend = rabbit
 rabbit_host = $IPADDR
 rabbit_port = 5672
 rabbit_userid = guest
-rabbit_password = password
+rabbit_password = $PASSWD
 #iscsiadm -m discovery -t sendtargets -p x.x.x.x:3260
 iscsi_helper = tgtadm
 iscsi_target_prefix = iqn.2011-11.com.upyun:
