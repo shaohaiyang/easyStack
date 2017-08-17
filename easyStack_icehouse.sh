@@ -664,7 +664,8 @@ cinder_restart(){
 }
 
 nova_show(){
-	nova-manage service list
+	#nova-manage service list
+	nova service-list
 	nova flavor-list
 	nova net-list
 	nova-manage network list
