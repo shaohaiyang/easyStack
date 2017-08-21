@@ -952,25 +952,11 @@ osapi_volume_listen_port=8776
 osapi_volume_workers=5
 compute_api_class=cinder.compute.nova.API
 
-#[keymgr]
-#identity_uri = http://$IPADDR:35357
-#auth_uri = identity_uri
-#auth_url = http://$IPADDR:35357
-#admin_user = cinder
-#admin_password = cinder_secret
-#admin_tenant_name = service
-
 [database]
-connection = mysql://cinder:password@$IPADDR/cinder
+connection = mysql://cinder:password@localhost/cinder
 EOF
 
 openstack-config --set /etc/cinder/cinder.conf DEFAULT auth_strategy keystone
-#openstack-config --set /etc/cinder/cinder.conf keymgr auth_uri http://$IPADDR:5000
-#openstack-config --set /etc/cinder/cinder.conf keymgr auth_url http://$IPADDR:35357
-#openstack-config --set /etc/cinder/cinder.conf keymgr auth_uri identity_uri http://$IPADDR:35357
-#openstack-config --set /etc/cinder/cinder.conf keymgr admin_user cinder
-#openstack-config --set /etc/cinder/cinder.conf keymgr admin_password cinder@$PASSWD
-#openstack-config --set /etc/cinder/cinder.conf keymgr admin_tenant_name service
 openstack-config --set /etc/cinder/cinder.conf DEFAULT rpc_backend rabbit
 openstack-config --set /etc/cinder/cinder.conf DEFAULT rabbit_host $IPADDR
 openstack-config --set /etc/cinder/cinder.conf DEFAULT rabbit_port 5672
@@ -987,7 +973,7 @@ openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_protocol 
 openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_host $IPADDR
 openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_port 35357
 openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_uri http://$IPADDR:5000
-openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_tenant_name service
+openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_tenant_name $TENANT_NAME
 openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_user cinder
 openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_password cinder@$PASSWD
 openstack-config --set /etc/cinder/api-paste.ini filter:authtoken admin_token  $(cat $KS_TOKEN_PRE$ADMIN_USER)
