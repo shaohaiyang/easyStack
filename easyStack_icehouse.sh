@@ -10,11 +10,12 @@ ROOTPW="xxxxxx"
 TIME_SRV="133.100.11.8"
 ZONE="Asia/Shanghai"
 COMMAND=`pwd`"/$SCRIPT"
+CPU_NUMS=`grep -c "vendor_id" /proc/cpuinfo`
 
 VIRT_TYPE="kvm"
 
 ###  user|pass|role|tenant
-REGION="RegionHK1"
+REGION="RegionX"
 KEYS_ADMIN_URL="$IPADDR:35357/v2.0"
 KEYS_URL="$IPADDR:5000/v2.0"
 IMAGE_URL="$IPADDR:9292/v1"
@@ -65,6 +66,14 @@ env_initalize(){
 #https://repos.fedorapeople.org/repos/openstack/openstack-icehouse/rdo-release-icehouse-4.noarch.rpm
 #yum -y install http://repos.fedorapeople.org/repos/openstack/openstack-icehouse/rdo-release-icehouse.rpm 
 #yum -y update
+
+cat > /etc/yum.repos.d/rdo-release.repo <<EOF
+[openstack-icehouse]
+name=OpenStack Icehouse Repository
+baseurl=https://repos.fedorapeople.org/openstack/EOL/openstack-icehouse/epel-6/
+enabled=1
+gpgcheck=0
+EOF
 
 ### install openstack software
 yum --enablerepo=openstack-icehouse,epel -y install \
@@ -151,13 +160,10 @@ mysql mysql-server httpd "*memcache*" scsi-target-utils \
 iscsi-initiator-utils perl-DBI perl-DBD-MySQL ;
 
 # Warning! Dangerous step! Deletes local application data
-rm -rf /etc/nagios /etc/yum.repos.d/packstack_* /root/.my.cnf \
-/var/lib/mysql/ /var/lib/glance /var/lib/nova /etc/nova /etc/swift \
-/srv/node/device*/* /var/lib/cinder/ /etc/rsync.d/frag* \
-/var/cache/swift /var/log/keystone /var/log/cinder/ /var/log/nova/ \
-/var/log/httpd /var/log/glance/ /var/log/nagios/ /var/log/quantum/ ;
+rm -rf /etc/nagios /etc/rsync.d/frag* /etc/nova /etc/swift \
+/var/lib/glance /var/lib/nova /var/lib/cinder/ /var/cache/swift \
+/var/log/keystone /var/log/cinder/ /var/log/nova/ /var/log/httpd /var/log/glance/ /var/log/nagios/ /var/log/quantum/
 
-umount /srv/node/device* ;
 killall -9 dnsmasq tgtd httpd ;
 
 vgremove -f cinder-volumes ;
@@ -185,6 +191,8 @@ export SERVICE_TOKEN=$(cat $KS_TOKEN_PRE$ADMIN_USER)
 EOF
 source $KS_RCONFIG$ADMIN_USER
 openstack-config --set /etc/keystone/keystone.conf DEFAULT admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
+openstack-config --set /etc/keystone/keystone.conf memcache servers $IPADDR:11211
+
 sed -r -i '/OS_/d' ~/.bashrc
 sed -r -i '/_TOKEN/d' ~/.bashrc
 sed -r -i '/SERVICE_/d' ~/.bashrc
@@ -207,8 +215,6 @@ for item in $SYSTEM_COMPONENT;do
 	echo $tenant >> /tmp/sys_tenant
 done
 echo "admin" >> /tmp/sys_role
-echo "member" >> /tmp/sys_role
-#echo "admin" >> /tmp/sys_tenant
 echo "service" >> /tmp/sys_tenant
 ROLE=`sort -u /tmp/sys_role`
 TENANT=`sort -u /tmp/sys_tenant`
@@ -364,9 +370,10 @@ cat > /etc/glance/glance-api.conf <<EOF
 rabbit_host = $IPADDR
 rabbit_userid = guest
 rabbit_password = $PASSWD
+workers = $CPU_NUMS
 
 [database]
-connection=mysql://glance:upyun123@localhost/glance
+connection = mysql://glance:password@localhost/glance
 
 [paste_deploy]
 flavor = keystone
@@ -380,27 +387,25 @@ openstack-db --drop --rootpw "$ROOTPW" --service glance
 openstack-db --init --rootpw "$ROOTPW" --service glance --password "$PASSWD"
 
 openstack-config --set /etc/glance/glance-api.conf paste_deploy flavor keystone
-openstack-config --set /etc/glance/glance-registry.conf paste_deploy flavor keystone
-
+openstack-config --set /etc/glance/glance-api.conf paste_deploy config_file /etc/glance/glance-api-paste.ini
 openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_host $IPADDR
 openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_userid guest
 openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_password $PASSWD
 
-openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
-openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
-
-openstack-config --set /etc/glance/glance-api.conf paste_deploy config_file /etc/glance/glance-api-paste.ini
-openstack-config --set /etc/glance/glance-api.conf paste_deploy flavor keystone
-openstack-config --set /etc/glance/glance-registry.conf paste_deploy config_file /etc/glance/glance-registry-paste.ini
-openstack-config --set /etc/glance/glance-registry.conf paste_deploy flavor keystone
 openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken auth_host $IPADDR
-openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_tenant_name service
+openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_tenant_name $TENANT_NAME
 openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_user glance
 openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_password glance@$PASSWD
+openstack-config --set /etc/glance/glance-api-paste.ini filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
+
+openstack-config --set /etc/glance/glance-registry.conf paste_deploy flavor keystone
+openstack-config --set /etc/glance/glance-registry.conf paste_deploy config_file /etc/glance/glance-registry-paste.ini
+
 openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken auth_host $IPADDR
-openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_tenant_name service
+openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_tenant_name $TENANT_NAME
 openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_user glance
 openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_password glance@$PASSWD
+openstack-config --set /etc/glance/glance-registry-paste.ini filter:authtoken admin_token $(cat $KS_TOKEN_PRE$ADMIN_USER)
 
 for svc in registry api;do
 	chkconfig openstack-glance-$svc on && service openstack-glance-$svc restart
@@ -502,7 +507,7 @@ volume_api_class = nova.volume.cinder.API
 cinder_catalog_info=volume:cinder:publicURL
 cinder_endpoint_template= http://$IPADDR:8776/v1/%(project_id)s
 [database]
-connection = mysql://nova:password@$IPADDR/nova
+connection = mysql://nova:password@localhost/nova
 [keystone_authtoken]
 auth_uri = http://$IPADDR:5000
 auth_url = http://$IPADDR:35357
@@ -548,7 +553,7 @@ openstack-config --set /etc/nova/nova.conf keystone_authtoken admin_tenant_name 
 openstack-config --set /etc/nova/nova.conf database connection mysql://nova:$PASSWD@$IPADDR/nova
 
 openstack-config --set /etc/nova/api-paste.ini filter:authtoken auth_host $IPADDR
-openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_tenant_name service
+openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_tenant_name $TENANT_NAME
 openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_user nova
 openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_password nova@$PASSWD
 openstack-config --set /etc/nova/api-paste.ini filter:authtoken admin_token  $(cat $KS_TOKEN_PRE$ADMIN_USER)
@@ -699,7 +704,7 @@ nova_create_keypair(){
 
 nova_create_network(){
 	nova network-create upnet --bridge br100 --multi-host T --fixed-range-v4 10.0.6.64/25 --dns1 114.114.114.114 --dns2 8.8.8.8 --gateway 10.0.0.130
-    #mysql -uroot -p"$ROOTPW" nova -e "update fixed_ips set reserved ='1'"
+	#mysql -uroot -p"$ROOTPW" nova -e "update fixed_ips set reserved ='1'"
 	#nova-manage floating create --ip_range=192.168.13.128/27  --pool public_ip
 }
 nova_addrule(){
