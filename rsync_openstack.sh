@@ -44,5 +44,5 @@ for SRV in $SERVER;do
 	#$SSH $ip -n "openstack-config --set /etc/nova/nova.conf DEFAULT enabled_apis metadata,ec2,osapi_compute"
 	#$SSH $ip -n "mkdir -p /disk/ssd1/nova-instances;chown -R nova.nova /disk/ssd1/nova-instances;ln -snf /disk/ssd1/nova-instances /var/lib/nova/instances"
 	#$SSH $ip -n "/root/easyStack_icehouse.sh nova_to_compute"
-    $SSH $ip -n "/etc/init.d/ntpd stop;ntpdate -o3 0.pool.ntp.org 211.115.194.21 133.100.11.8 142.3.100.15"
+	$SSH $ip -n "/etc/init.d/ntpd stop;ntpdate -o3 0.pool.ntp.org 211.115.194.21 133.100.11.8 142.3.100.15"
 done
