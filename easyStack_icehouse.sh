@@ -11,10 +11,10 @@ TIME_SRV="133.100.11.8"
 ZONE="Asia/Shanghai"
 COMMAND=`pwd`"/$SCRIPT"
 CPU_NUMS=`grep -c "vendor_id" /proc/cpuinfo`
-
 VIRT_TYPE="kvm"
 
 ###  user|pass|role|tenant
+readonly ADMIN_SETTING="admin|x|admin|service"
 REGION="RegionX"
 KEYS_ADMIN_URL="$IPADDR:35357/v2.0"
 KEYS_URL="$IPADDR:5000/v2.0"
@@ -23,8 +23,6 @@ NOVA_URL="$IPADDR:8774/v2/\$(tenant_id)s"
 VOLUME_URL="$IPADDR:8776/v1/\$(tenant_id)s"
 OBG_STORE_URL="$IPADDR:8080/v1/AUTH_\$(tenant_id)s"
 EC2_URL="$IPADDR:8773/services/Cloud"
-readonly ADMIN_SETTING="admin|x|admin|service"
-readonly SYSTEM_COMPONENT="nova|x|admin|service glance|x|admin|service swift|x|admin|service cinder|x|admin|service"
 
 ### Color setting
 RED_COL="\\033[1;31m"  # red color
@@ -205,62 +203,34 @@ mkdir -m 1777 -p /var/log/keystone; chown -R keystone.keystone /var/log/keystone
 chkconfig openstack-keystone on && service openstack-keystone stop
 service openstack-keystone restart
  
-echo $ADMIN_ROLE >> /tmp/sys_role
-echo $TENANT_NAME >> /tmp/sys_tenant
+printf "${GREEN_COL}%-15s\t${NORMAL_COL}" $ADMIN_ROLE
+$COMMAND keys_addrole $ADMIN_ROLE
 
-for item in $SYSTEM_COMPONENT;do
-	role=`echo $item|cut -d"|" -f3`	
-	tenant=`echo $item|cut -d"|" -f4`	
-	echo $role >> /tmp/sys_role
-	echo $tenant >> /tmp/sys_tenant
-done
-echo "admin" >> /tmp/sys_role
-echo "service" >> /tmp/sys_tenant
-ROLE=`sort -u /tmp/sys_role`
-TENANT=`sort -u /tmp/sys_tenant`
+printf "${GREEN_COL}%-15s\t${NORMAL_COL}" $TENANT_NAME
+$COMMAND keys_addtenant $TENANT_NAME
 
-for role in $ROLE;do
-	printf "${GREEN_COL}%-15s\t${NORMAL_COL}" $role
-	$COMMAND keys_addrole $role
-done
-echo
+printf "${GREEN_COL}%-15s\t${NORMAL_COL}" $ADMIN_USER
+$COMMAND keys_adduser $ADMIN_USER $ADMIN_PASS
 
-for tenant in $TENANT;do
-	printf "${GREEN_COL}%-15s\t${NORMAL_COL}" $tenant
-	$COMMAND keys_addtenant $tenant
-done
-echo
-
-for item in "$ADMIN_USER|$ADMIN_PASS|$ADMIN_ROLE|$TENANT_NAME" $SYSTEM_COMPONENT;do
-	user=`echo $item|cut -d"|" -f1`	
-	pass=$user@$PASSWD
-	role=`echo $item|cut -d"|" -f3`	
-	tenant=`echo $item|cut -d"|" -f4`	
-	printf "${GREEN_COL}%-15s\t${NORMAL_COL}" $user
-	$COMMAND keys_adduser $user $pass
-	printf "${GREEN_COL}%15s\t${NORMAL_COL}" "------->"
-	$COMMAND keys_bind $user $role $tenant
-	echo
-done
-rm -rf /tmp/sys_*
+printf "${GREEN_COL}%15s\t${NORMAL_COL}" "------->"
+$COMMAND keys_bind $ADMIN_USER $ADMIN_ROLE $TENANT_NAME
 
 ### create default service
-        $COMMAND keys_addsrv keystone identity 'OpenStack Identity Service'
-	$COMMAND keys_addsrv nova compute 'OpenStack Compute Service'
-        $COMMAND keys_addsrv glance image  'OpenStack Image Service'
-        $COMMAND keys_addsrv cinder volume  'OpenStack Cinder Service'
-#        $COMMAND keys_addsrv swift  object-store 'OpenStack Storage Service'
-#        $COMMAND keys_addsrv ec2 ec2 'EC2 Service'
+$COMMAND keys_addsrv keystone identity 'OpenStack Identity Service'
+$COMMAND keys_addsrv nova compute 'OpenStack Compute Service'
+$COMMAND keys_addsrv glance image  'OpenStack Image Service'
+$COMMAND keys_addsrv cinder volume  'OpenStack Cinder Service'
+#$COMMAND keys_addsrv swift  object-store 'OpenStack Storage Service'
+#$COMMAND keys_addsrv ec2 ec2 'EC2 Service'
 
-###
-	$COMMAND keys_addept compute "http://$NOVA_URL"
-	$COMMAND keys_addept image "http://$IMAGE_URL"
-	$COMMAND keys_addept volume "http://$VOLUME_URL"
-#	$COMMAND keys_addept object-store "http://$OBG_STORE_URL"
-#	$COMMAND keys_addept ec2 "http://$EC2_URL"
-	
-	service_id=$(keystone service-list|awk -F'|' '/identity/{print $2}')
-	keystone endpoint-create --region $REGION --service_id $service_id --publicurl http://$KEYS_URL --internalurl http://$KEYS_URL --adminurl http://$KEYS_ADMIN_URL
+$COMMAND keys_addept compute "http://$NOVA_URL"
+$COMMAND keys_addept image "http://$IMAGE_URL"
+$COMMAND keys_addept volume "http://$VOLUME_URL"
+#$COMMAND keys_addept object-store "http://$OBG_STORE_URL"
+#$COMMAND keys_addept ec2 "http://$EC2_URL"
+
+service_id=$(keystone service-list|awk -F'|' '/identity/{print $2}')
+keystone endpoint-create --region $REGION --service_id $service_id --publicurl http://$KEYS_URL --internalurl http://$KEYS_URL --adminurl http://$KEYS_ADMIN_URL
 }
 
 keystone_add_user(){
