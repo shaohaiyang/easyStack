@@ -921,6 +921,7 @@ osapi_volume_listen=0.0.0.0
 osapi_volume_listen_port=8776
 osapi_volume_workers=5
 compute_api_class=cinder.compute.nova.API
+volume_clear_size=50
 
 [database]
 connection = mysql://cinder:password@localhost/cinder
