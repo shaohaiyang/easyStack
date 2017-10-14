@@ -1,5 +1,6 @@
+#nova flavor-list|awk '/[0-9*]/{print $4}'
 #nova-manage network list
-#nova-manage network delete  183.134.101.128/27
+#nova-manage network delete 183.134.101.128/27
 #nova network-create upnet --bridge=br100 --multi-host=T --fixed-range-v4=158.118.218.1/24 --dns1=8.8.8.8 --gateway=158.118.218.1
 #nova-manage floating create --ip_range=183.134.101.144/29  --pool CTC-ZJ-LNA
 
@@ -33,8 +34,13 @@ mem_quota(){
     nova flavor-key $flavor set quota:mem_soft_limit=$soft
 }
 
-flavor="c1m1d10n5"
-band="5" #5mbps
-mem="1" #2G
+if [ -z $1 ];then
+	flavor="c1m2d20"
+else
+	flavor=$1
+fi
 
+band=`echo $flavor|sed -r 's^.*n(.*)$^\1^g'`
+mem=`echo $flavor|sed -r 's^.*m(.*)d.*^\1^g'`
+echo $mem
 mem_quota
