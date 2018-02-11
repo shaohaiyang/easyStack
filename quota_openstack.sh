@@ -12,7 +12,7 @@
 #exit
 
 net_quota(){
-    burst=$((band*5))
+    burst=7500
     band=$((band*135))
     echo $band $burst
     
@@ -42,5 +42,5 @@ fi
 
 band=`echo $flavor|sed -r 's^.*n(.*)$^\1^g'`
 mem=`echo $flavor|sed -r 's^.*m(.*)d.*^\1^g'`
-echo $mem
 mem_quota
+net_quota
