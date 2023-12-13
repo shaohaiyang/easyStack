@@ -1385,7 +1385,6 @@ else
 volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
 volume_group = cinder-volumes
 volume_backend_name = lvm-$s_host
-target_protocol = iscsi
 target_helper = lioadm
 EOF
 fi
