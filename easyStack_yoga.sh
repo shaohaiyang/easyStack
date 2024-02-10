@@ -40,25 +40,18 @@ if [ ! -s ~/.easystackrc ];then
     echo -en "Input Region No ${YELLOW_COL} [ $REGION ] ${NORMAL_COL}: " && read VARIABLE
     [ ! -z "$VARIABLE" ] && REGION=$VARIABLE
     
-    echo -en "Input Cluster VIP ${YELLOW_COL} [ $CCVIP ] ${NORMAL_COL}: " && read VARIABLE
-    if [ ! -z "$VARIABLE" ];then
-        CCVIP=$VARIABLE
-    else
-        echo "Cluster VIP/Domain must be valid!" && exit 0
-    fi
-    
     echo -en "Input Local IP ${YELLOW_COL} [ $MY_IP ] ${NORMAL_COL}: " && read VARIABLE
     if [ ! -z "$VARIABLE" ];then
       VALID_CHECK=$(echo $VARIABLE|awk -F. '$1<=255&&$2<=255&&$3<=255&&$4<=255{print "yes"}')
       if [ ! -z $VALID_CHECK ] && [ $VALID_CHECK = "yes" ];then
         MY_IP=$VARIABLE
       else
-        echo "IP format error!" && exit 0
+        echo "IP Format Error!" && exit 0
       fi
     fi
     
-    echo -en "Does support Control Cluster: ${YELLOW_COL} [ Y|N ] ${NORMAL_COL}: " && read -n 1 VARIABLE
-    if [ ${VARIABLE,,:0:1} = "y" ];then
+    echo -en "Does it MySQL Cluster? ${YELLOW_COL} [ Y|N ] ${NORMAL_COL}: " && read -n 1 VARIABLE
+    if [ ! -z ${VARIABLE} ] && [ ${VARIABLE,,} = "y" ];then
       i=1
       while [ $i -le 3 ];do
 	echo -en "\n${YELLOW_COL}$i node ip address${NORMAL_COL}: " && read VARIABLE
@@ -68,13 +61,13 @@ if [ ! -s ~/.easystackrc ];then
 	      GLERA_SRV+="$VARIABLE,"
 	      ((i++))
 	    else
-	      echo "IP format error!" 
+	      echo "IP Format error!"
 	    fi
 	  fi
       done
       GLERA_SRV=${GLERA_SRV%,}
     else
-      echo
+      echo -en "\nCompute Node."
       GLERA_SRV=
     fi
     echo
@@ -98,7 +91,7 @@ if [ ! -s ~/.easystackrc ];then
     done
     
     echo -en "Choos Node Role ${YELLOW_COL} [ $NODE_TYPE ] ${NORMAL_COL}: \n"
-    A_LISTS="ALL Control Compute"
+    A_LISTS="ALL Control Network Compute"
     select choice in $A_LISTS; do
        case $choice in
          ALL)
@@ -106,6 +99,9 @@ if [ ! -s ~/.easystackrc ];then
           break;;
          Control)
           NODE_TYPE="control"
+          break;;
+         Network)
+          NODE_TYPE="network"
           break;;
          Compute)
           NODE_TYPE="compute"
@@ -115,17 +111,29 @@ if [ ! -s ~/.easystackrc ];then
        esac
     done
     
+    GPUNAME=$(lspci -nn| sed -r -n '/VGA.*NVIDIA/s@.*\[(.*)\].*\[.*@\1@gp'|tr ' ' '_'|sort -u)
+    echo $GPUNAME | grep -iq ^[a-zA-Z]
+    if [ $? = 1 ];then
+      echo -en "Input GPU Name${YELLOW_COL} [ $GPUNAME ] ${NORMAL_COL}: " && read VARIABLE
+      [ ! -z "$VARIABLE" ] && GPUNAME=$VARIABLE
+    fi
+
+
+    CCVIP=`echo $HOSTNAME|awk -F. '{print "cc."$(NF-1)"."$NF}'`
+    DBVIP=`echo $HOSTNAME|awk -F. '{print "db."$(NF-1)"."$NF}'`
     cat > ~/.easystackrc <<EOF
 HOSTNAME="$HOSTNAME"
 NODE_TYPE="$NODE_TYPE"
 REGION="$REGION"
-CCVIP=$CCVIP
-MY_IP=$MY_IP
+CCVIP="$CCVIP"
+DBVIP="$DBVIP"
+MY_IP="$MY_IP"
 VIRT_TYPE="${VIRT_TYPE:-"qemu"}"
 PROVIDER_INTERFACE="$PROVIDER_INTERFACE"
-GLERA_SRV=${GLERA_SRV%,}
+GLERA_SRV="${GLERA_SRV%,}"
 MEMCACHES="$CCVIP:11211"
 STORE_BACKEND=$STORE_BACKEND
+GPUNAME="${GPUNAME,,}"
 
 NOVA_URL="http://$CCVIP:8774/v2.1"
 IMAGE_URL="http://$CCVIP:9292/v2"
@@ -162,7 +170,8 @@ readonly KS_SERV_PRE="$KS_DIR/ks_servid_"
 readonly KS_TENANT_PRE="$KS_DIR/ks_tenantid_"
 ############## function begin #################
 ADMIN_USER=`echo $ADMIN_SETTING|cut -d"|" -f1`
-ADMIN_PASS=`echo "$ADMIN_USER@@$DBPASSWD" | md5sum | cut -c1-15`
+#ADMIN_PASS=`echo "$ADMIN_USER@@$DBPASSWD" | md5sum | cut -c1-15`
+ADMIN_PASS="$ADMIN_USER@$DBPASSWD"
 ADMIN_ROLE=`echo $ADMIN_SETTING|cut -d"|" -f3`
 TENANT_NAME=`echo $ADMIN_SETTING|cut -d"|" -f4`
 
@@ -406,7 +415,7 @@ keystone_init(){
 [DEFAULT]
 
 [database]
-connection = mysql+pymysql://keystone:$DBPASSWD@$CCVIP/keystone
+connection = mysql+pymysql://keystone:$DBPASSWD@$DBVIP:$MY_PORT/keystone
 
 [cache]
 backend = oslo_cache.memcache_pool
@@ -428,8 +437,8 @@ if [ $(ls -al /var/lib/mysql/keystone/* | wc -l) -lt 10 ];then
 fi
 
   sed -r -i '/ServerName /d' /etc/httpd/conf/httpd.conf
-  sed -r -i "/^Listen/s@.*@Listen $MY_IP:80@g" /etc/httpd/conf/httpd.conf
-  sed -r -i "/^Listen/s@.*@Listen $MY_IP:443@g" /etc/httpd/conf.d/ssl.conf
+  sed -r -i "/^Listen/s@.*@Listen $MY_IP:8000@g" /etc/httpd/conf/httpd.conf
+  mv /etc/httpd/conf.d/ssl.conf /etc/httpd/conf.d/ssl.conf.old
   echo "ServerName $CCVIP" >> /etc/httpd/conf/httpd.conf
   > /var/www/html/index.html
 
@@ -599,7 +608,7 @@ bind_host = $MY_IP
 transport_url = rabbit://guest:$DBPASSWD@$CCVIP:5672/
 
 [database]
-connection = mysql+pymysql://glance:$DBPASSWD@$CCVIP:$MY_PORT/glance
+connection = mysql+pymysql://glance:$DBPASSWD@$DBVIP:$MY_PORT/glance
 
 [keystone_authtoken]
 www_authenticate_uri = $KEYS_AUTH_URL
@@ -706,7 +715,7 @@ if [ ${NODE_TYPE,,} != "compute" ];then
 
   cat > /etc/placement/placement.conf <<EOF
 [placement_database]
-connection = mysql+pymysql://placement:$DBPASSWD@$CCVIP:$MY_PORT/placement
+connection = mysql+pymysql://placement:$DBPASSWD@$DBVIP:$MY_PORT/placement
 
 [api]
 auth_strategy = keystone
@@ -787,15 +796,15 @@ if [ ${NODE_TYPE,,} != "compute" ];then
 fi
 
 # 如果有额外挂载的大硬盘，则把nova的实例目录迁移到新目录下
-df -h|grep -wq /disk/ssd1
+df -h|grep -wq /disk/nvme-disk
 if [ $? = 0 ];then
   if [ ! -L /var/lib/nova ];then 
-    if [ ! -d /disk/ssd1/nova ] ;then
-      mv /var/lib/nova /disk/ssd1/
-      ln -snf /disk/ssd1/nova /var/lib/
+    if [ ! -d /disk/nvme-disk/nova ] ;then
+      mv /var/lib/nova /disk/nvme-disk/
+      ln -snf /disk/nvme-disk/nova /var/lib/
     fi
   fi
-  chmod 1777 /disk/ssd1
+  chmod 1777 /disk/nvme-disk
 fi
 
   cat > /etc/nova/nova.conf <<EOF
@@ -824,10 +833,10 @@ firewall_driver = nova.virt.firewall.NoopFirewallDriver
 transport_url = rabbit://guest:$DBPASSWD@$CCVIP:5672/
 
 [api_database]
-connection = mysql+pymysql://nova:$DBPASSWD@$CCVIP:$MY_PORT/nova_api
+connection = mysql+pymysql://nova:$DBPASSWD@$DBVIP:$MY_PORT/nova_api
 
 [database]
-connection = mysql+pymysql://nova:$DBPASSWD@$CCVIP:$MY_PORT/nova
+connection = mysql+pymysql://nova:$DBPASSWD@$DBVIP:$MY_PORT/nova
 
 [api]
 auth_strategy = keystone
@@ -859,10 +868,10 @@ www_authenticate_uri = $KEYS_AUTH_URL
 enabled = true
 server_listen = \$my_ip
 server_proxyclient_address = \$my_ip
-# internet loadbalance ip
-novncproxy_base_url = http://\$my_ip:6080/vnc_auto.html
 novncproxy_host = \$my_ip
 novncproxy_port = 6080
+# internet loadbalance ip
+novncproxy_base_url = http://\$my_ip:6081/vnc_auto.html
 
 [glance]
 api_servers = ${IMAGE_URL%v2}
@@ -1126,7 +1135,7 @@ notify_nova_on_port_status_changes = true
 notify_nova_on_port_data_changes = true
 
 [database]
-connection = mysql+pymysql://neutron:$DBPASSWD@$CCVIP:$MY_PORT/neutron
+connection = mysql+pymysql://neutron:$DBPASSWD@$DBVIP:$MY_PORT/neutron
 
 [keystone_authtoken]
 www_authenticate_uri = $KEYS_AUTH_URL
@@ -1236,35 +1245,37 @@ neutron_addnet(){
 }
 
 neutron_start(){
-  if [ ${NODE_TYPE,,} = "control" ];then
+  if [ ${NODE_TYPE,,} = "control" ] || [ ${NODE_TYPE,,} = "all" ];then
     echo -e "${GREEN_COL}-> Restarting Service nova-api  ${NORMAL_COL}"
     systemctl restart openstack-nova-api
   fi
 
   #如果是网络选项2：自服务网络，同样也启用并启动layer-3服务：
-  if [ ${NODE_TYPE,,} = "network" ];then
+  if [ ${NODE_TYPE,,} = "network" ] || [ ${NODE_TYPE,,} = "all" ];then
     for svc in server linuxbridge-agent dhcp-agent metadata-agent l3-agent;do
       echo -e "${GREEN_COL}-> Starting Service $svc  ${NORMAL_COL}"
       systemctl enable --now neutron-$svc
     done
   fi
 
-  if [ ${NODE_TYPE,,} = "compute" ];then
+  if [ ${NODE_TYPE,,} = "compute" ] || [ ${NODE_TYPE,,} = "all" ];then
     echo -e "${GREEN_COL}-> Restarting Service nova-compute  ${NORMAL_COL}"
     systemctl restart openstack-nova-compute
   fi
 
   for svc in linuxbridge-agent ;do
     echo -e "${GREEN_COL}-> Restarting Service $svc  ${NORMAL_COL}"
+    systemctl enable --now neutron-$svc
     systemctl restart neutron-$svc
   done
 }
 
 neutron_stop(){
-  for svc in dhcp-agent l3-agent linuxbridge-agent metadata-agent server;do
+  for svc in dhcp-agent l3-agent metadata-agent server;do
     systemctl status neutron-$svc|grep -iq "active (running)"
     if [ $? = 0 ];then
       echo -e "${YELLOW_COL}-> Stopping Service $svc  ${NORMAL_COL}"
+      systemctl disable --now neutron-$svc
       systemctl stop neutron-$svc
     fi
   done
@@ -1309,9 +1320,9 @@ cinder_init(){
       echo -e "${RED_COL}LVM2 Not Installed!${NORMAL_COL}"
       exit 0
     fi
-  else
-    ceph health | grep -qw HEALTH_OK
-    [ $? = 1 ] && echo -e "${RED_COL}Ceph Have Problem!${NORMAL_COL}" && exit 0
+  #else
+    #ceph health | grep -qw HEALTH_OK
+    #[ $? = 1 ] && echo -e "${RED_COL}Ceph Have Problem!${NORMAL_COL}" && exit 0
   fi
 
   for svc in openstack-cinder lvm2 device-mapper-persistent-data targetcli python3-keystone python3-rbd ;do
@@ -1327,7 +1338,7 @@ cinder_init(){
 
   cat > /etc/cinder/cinder.conf <<EOF
 [database]
-connection = mysql+pymysql://cinder:$DBPASSWD@$CCVIP:$MY_PORT/cinder
+connection = mysql+pymysql://cinder:$DBPASSWD@$DBVIP:$MY_PORT/cinder
 
 [DEFAULT]
 debug = $DEBUG
@@ -1337,7 +1348,10 @@ transport_url = rabbit://guest:$DBPASSWD@$CCVIP:5672/
 auth_strategy = keystone
 glance_api_version = 2
 glance_api_servers = $IMAGE_URL
-enabled_backends = $STORE_BACKEND
+enabled_backends = ceph,lvm
+quota_volumes = 100
+quota_snapshots = 100
+quota_gigabytes=100000
 
 [keystone_authtoken]
 www_authenticate_uri = $KEYS_AUTH_URL
@@ -1353,10 +1367,12 @@ password = $ADMIN_PASS
 [oslo_concurrency]
 lock_path = /var/lib/cinder/tmp
 
-EOF
+[lvm]
+volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
+volume_group = nvme-disk
+volume_backend_name = lvm-$s_host
+target_helper = lioadm
 
-if [ $STORE_BACKEND = "ceph" ];then
-  cat >> /etc/cinder/cinder.conf <<EOF
 [ceph]
 volume_driver = cinder.volume.drivers.rbd.RBDDriver
 rbd_pool = volumes
@@ -1379,15 +1395,6 @@ volume_backend_name = ceph-$s_host
 #backup_ceph_stripe_count = 0
 #restore_discard_excess_bytes = true
 EOF
-else
-  cat >> /etc/cinder/cinder.conf <<EOF
-[lvm]
-volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
-volume_group = cinder-volumes
-volume_backend_name = lvm-$s_host
-target_helper = lioadm
-EOF
-fi
 
 if [ $(ls -al /var/lib/mysql/cinder/* | wc -l) -lt 10 ];then
   $COMMAND keys_adduser cinder $ADMIN_PASS $TENANT_NAME
@@ -1448,7 +1455,7 @@ ceph auth get-or-create client.glance > /etc/ceph/ceph.client.glance.keyring
 chown cinder.cinder /etc/ceph/*cinder*
 chown glance.glance /etc/ceph/*glance*
 EOF
-  chmod +x /root/ceph-auth.sh
+sh /root/ceph-auth.sh
 
 cat > /root/ceph_secret_virsh.xml <<EOF
 <secret ephemeral='no' private='no'>
@@ -1460,7 +1467,7 @@ cat > /root/ceph_secret_virsh.xml <<EOF
 EOF
 
   for node in $(openstack hypervisor list -c "Hypervisor Hostname" -f value);do
-    scp /etc/ceph/ceph.client.cinder.keyring $node:/etc/ceph/
+    scp /etc/ceph/ceph.client.[gc]* $node:/etc/ceph/
     scp /root/ceph_secret_virsh.xml $node:/root/
     echo -en "${YELLOW_COL} ------------- Virsh Patch $node -------------${NORMAL_COL}\n"
     ssh $node "virsh secret-define --file /root/ceph_secret_virsh.xml; virsh secret-set-value --secret $MY_UUID --base64 \$(awk '/key/{print \$NF}' /etc/ceph/ceph.client.cinder.keyring) ; virsh secret-list"
@@ -1470,8 +1477,14 @@ EOF
 probe_gpu(){
 # ls -adl /sys/kernel/iommu_groups/*
 # lspci -s 01:00.0 -k 
-  [ `dnf list --installed | grep -iq driverctl` = 0  ] && dnf install -y driverctl
-  lspci -nn | sed -r -n '/VGA.*NVIDIA/s@(.*) VGA.*\[(.*)\].*\[(.*):(.*)\].*@\1 \3 \4 #\2@gp' > .vendor_pcis
+  GPU_NAME=$(lspci -nn| sed -r -n '/VGA.*NVIDIA/s@.*\[(.*)\].*\[.*@\1@gp'|tr ' ' '_'|sort -u)
+  echo $GPU_NAME | grep -iq ^[a-zA-Z]
+  [ $? = 1 ] && GPU_NAME=$GPUNAME
+  sed -r -i '/\[pci\]/, /alias/d' /etc/nova/nova.conf
+
+  dnf list --installed | grep -iq driverctl
+  [ $? = 1  ] && dnf install -y driverctl
+  lspci -nn | sed -r -n "/VGA.*NVIDIA/s@(.*) VGA.*\[(.*)\].*\[(.*):(.*)\].*@\1 \3 \4 #$GPU_NAME@gp" > .vendor_pcis
 
   echo -en "\n${YELLOW_COL}==========  Node: [ $(awk 'END{print NR}' .vendor_pcis) ] GPU Cards ==========\n${NORMAL_COL}"
   for id in $(lspci -nn |awk '/NVIDIA/{split($1,a,".");print a[1]}'|sort -u);do
@@ -1493,8 +1506,8 @@ passthrough_whitelist = [ ${nova_str} ]
 "
 
   while read item;do
-    GPUNAME=$(echo $item | awk -F# '{gsub(" ","_",$2);print $2}' )
-    alias_str+="alias = {\"name\": \"${GPUNAME,,}\","
+    GPU_NAME=$(echo $item | awk -F# '{gsub(" ","_",$2);print $2}' )
+    alias_str+="alias = {\"name\": \"${GPU_NAME,,}\","
     alias_str+=$(echo $item | awk -F'#' '{print $1}'|awk '{print "\"vendor_id\":\""$2"\", \"product_id\":\""$3"\""}')
     alias_str+=", \"device_type\":\"type-PCI\"}\n"
     echo -en $alias_str >> .tmp.pcis
@@ -1505,11 +1518,19 @@ passthrough_whitelist = [ ${nova_str} ]
 [pci]
 $(cat .tmp.pcis)
 "
-  rm -rf .vendor_pcis .vgacards .tmp.pcis
+
+cat >> /etc/nova/nova.conf<<EOF
+
+[pci]
+passthrough_whitelist = [ ${nova_str} ]
+$(cat .tmp.pcis)
+EOF
+
+rm -rf .vendor_pcis .vgacards .tmp.pcis
 ##########################################
 echo -en "\n${YELLOW_COL}--------------------------------------- \n${NORMAL_COL}"
-echo -en "${YELLOW_COL}openstack flavor set m1.GPU --property \"pci_passthrough:alias\"=\"${GPUNAME,,}:1\"\n${NORMAL_COL}"
-echo -en "${YELLOW_COL}openstack flavor create c2m4d10g1 --vcpus 2 --ram 4096 --disk 10 --property \"pci_passthrough:alias\"=\"${GPUNAME,,}:1\"\n${NORMAL_COL}"
+echo -en "${YELLOW_COL}openstack flavor set m1.GPU --property \"pci_passthrough:alias\"=\"${GPU_NAME,,}:1\"\n${NORMAL_COL}"
+echo -en "${YELLOW_COL}openstack flavor create c2m4d10g1 --vcpus 2 --ram 4096 --disk 10 --property \"pci_passthrough:alias\"=\"${GPU_NAME,,}:1\"\n${NORMAL_COL}"
 #openstack flavor create c2m4d10g1  --vcpus 2 --ram 4096 --disk 10 --property "pci_passthrough:alias"="a1:1"
 }
 
@@ -1567,7 +1588,7 @@ transport_url = rabbit://guest:$DBPASSWD@$CCVIP:5672/
 auth_strategy = keystone
 
 [database]
-connection = mysql+pymysql://octavia:$DBPASSWD@$CCVIP:$MY_PORT/octavia
+connection = mysql+pymysql://octavia:$DBPASSWD@$DBVIP:$MY_PORT/octavia
 
 [health_manager]
 bind_ip = $MY_IP
@@ -1729,7 +1750,6 @@ case $1 in
 	[ $NODE_TYPE = "compute" ] && echo "Node is Compute!" && exit
 	probe_ceph;;
   probe_gpu)
-	[ $NODE_TYPE = "control" ] && echo "Node is not Compute!" && exit
 	probe_gpu;;
   probe_hypervisor)
 	[ $NODE_TYPE = "compute" ] && echo "Node is Compute!" && exit
@@ -1762,7 +1782,7 @@ case $1 in
 	done;;
   *)
 	check_env
-  	echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}adjust_sys|control_init|env_clean|probe_ceph|probe_gpu|probe_hypervisor|checkall"
+  	echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}adjust_sys|control_init|probe_ceph|probe_gpu|probe_hypervisor|checkall|env_clean"
   	echo -e "${RED_COL}$SCRIPT ${GREEN_COL}keys_init|keys_addproj|keys_adduser|keys_addrole|keys_addsrv|keys_addept|keys_bind|keys_list"
   	echo -e "${RED_COL}$SCRIPT ${GREEN_COL}gls_init|gls_add|gls_show|gls_check|gls_restart"
   	echo -e "${RED_COL}$SCRIPT ${GREEN_COL}cinder_init|cinder_stop|cinder_start|cinder_restart|cinder_check"
