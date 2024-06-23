@@ -1,15 +1,25 @@
 #!/bin/sh
+export LC_ALL=en_US.utf8
+DEBUG="True"
 MY_IP=$(ip a | awk '/inet.*internal/{split($2,a,"/");{if(a[1]!="127.0.0.1") print a[1]}}'|head -1)
+TENANT_IP=$(ip a|awk '/inet.*tenant/{split($2,a,"/");{if(a[1]!="127.0.0.1") print a[1]}}'|head -1)
 REGION="Region0571"
 DBPASSWD="***upyun***"
 DBROOTPW="***upyun***"
-DEBUG="True"
+LVM_VOLUME="nvme-disk"
+GPUNAME="geforce_rtx_4090"
 ##############################################
+if [ -z $MY_IP ] ;then
+  MY_IP=$(ip a | awk '/inet.*global/{split($2,a,"/");{if(a[1]!="127.0.0.1") print a[1]}}'|head -1)
+  TENANT_IP=$MY_IP
+fi
 CCVIP=$MY_IP
+readonly SSHPORT=65422
+readonly MY_PORT=3306
 readonly ZONE="Asia/Shanghai"
 readonly VERSION="yoga"
 readonly CPU_RATIO=10
-readonly MEM_RATIO=1.5
+readonly MEM_RATIO=1
 readonly MY_UUID="9a3b92a-4f84-34gh-89zv-7de9346qwxr"
 readonly CPU_NUMS=`grep -c "vendor_id" /proc/cpuinfo`
 # 配置颜色
@@ -18,7 +28,7 @@ readonly GREEN_COL="\\033[32;1m"     # green color
 readonly BLUE_COL="\\033[34;1m"	    # blue color
 readonly YELLOW_COL="\\033[33;1m"    # yellow color
 readonly NORMAL_COL="\\033[0;39m"
-readonly MY_PORT=3306
+readonly RDO_URL="https://repos.fedorapeople.org/repos/openstack/archived/openstack-yoga/rdo-release-yoga-1.el8.noarch.rpm"
 
 # 如果不是root，就退出
 if [ `whoami` != "root" ]; then
@@ -31,6 +41,19 @@ if [ $? = 0 ];then
   lsmod |grep -qw kvm
   [ $? = 0 ] && VIRT_TYPE="kvm"
 fi
+##############################################
+check_kvm(){
+  IOMMU="intel_iommu=on iommu=pt"
+  KVM="kvm_intel nested=1"
+  grep -iq '^model name.*amd ' /proc/cpuinfo
+  if [ $? = 0 ] ;then
+    IOMMU="amd_iommu=on iommu=pt"
+    KVM="kvm_amd nested=1"
+  fi
+  [ -s /etc/modprobe.d/kvm.conf ] && sed -r -i '/ignore_msrs/d; /nested/d' /etc/modprobe.d/kvm.conf
+  echo -en "options kvm ignore_msrs=1\noptions $KVM\n" >>  /etc/modprobe.d/kvm.conf
+}
+
 ##############################################
 check_env(){
 if [ ! -s ~/.easystackrc ];then
@@ -61,7 +84,7 @@ if [ ! -s ~/.easystackrc ];then
 	      GLERA_SRV+="$VARIABLE,"
 	      ((i++))
 	    else
-	      echo "IP Format error!"
+	      echo "IP Format error!" 
 	    fi
 	  fi
       done
@@ -73,7 +96,7 @@ if [ ! -s ~/.easystackrc ];then
     echo
 
     echo -en "Input Provider Device ${YELLOW_COL} [ $PROVIDER_INTERFACE ] ${NORMAL_COL}: \n"
-    A_LISTS=$(ip a | awk '/LOWER_UP/{if($2~/(e|b)(t|m|n|o)/){gsub(":","",$2);print $2}}')
+    A_LISTS=$(nmcli device | awk '/connected/{print $1}')
     select choice in $A_LISTS; do
       if [ ! -z $choice ];then
         PROVIDER_INTERFACE=$choice
@@ -111,16 +134,14 @@ if [ ! -s ~/.easystackrc ];then
        esac
     done
     
-    GPUNAME=$(lspci -nn| sed -r -n '/VGA.*NVIDIA/s@.*\[(.*)\].*\[.*@\1@gp'|tr ' ' '_'|sort -u)
-    echo $GPUNAME | grep -iq ^[a-zA-Z]
-    if [ $? = 1 ];then
+    if [[ $(lspci -nn| sed -r -n '/VGA.*NVIDIA/s@.*\[(.*)\].*\[.*@\1@gp'|tr ' ' '_'|sort -u) =~ ^[0-9]* ]];then
       echo -en "Input GPU Name${YELLOW_COL} [ $GPUNAME ] ${NORMAL_COL}: " && read VARIABLE
       [ ! -z "$VARIABLE" ] && GPUNAME=$VARIABLE
     fi
 
-
     CCVIP=`echo $HOSTNAME|awk -F. '{print "cc."$(NF-1)"."$NF}'`
     DBVIP=`echo $HOSTNAME|awk -F. '{print "db."$(NF-1)"."$NF}'`
+    NETVIP=`echo $HOSTNAME|awk -F. '{print "net."$(NF-1)"."$NF}'`
     cat > ~/.easystackrc <<EOF
 HOSTNAME="$HOSTNAME"
 NODE_TYPE="$NODE_TYPE"
@@ -129,7 +150,7 @@ CCVIP="$CCVIP"
 DBVIP="$DBVIP"
 MY_IP="$MY_IP"
 VIRT_TYPE="${VIRT_TYPE:-"qemu"}"
-PROVIDER_INTERFACE="$PROVIDER_INTERFACE"
+PROVIDER_INTERFACE="${PROVIDER_INTERFACE/@*/}"
 GLERA_SRV="${GLERA_SRV%,}"
 MEMCACHES="$CCVIP:11211"
 STORE_BACKEND=$STORE_BACKEND
@@ -138,14 +159,15 @@ GPUNAME="${GPUNAME,,}"
 NOVA_URL="http://$CCVIP:8774/v2.1"
 IMAGE_URL="http://$CCVIP:9292/v2"
 VOLUME_URL="http://$CCVIP:8776/v3"
-NEUTRON_URL="http://$CCVIP:9696"
+NEUTRON_URL="http://$NETVIP:9696"
 OCTAVIA_URL="http://$CCVIP:9876"
 PLACEMENT_URL="http://$CCVIP:8778"
 KEYS_AUTH_URL="http://$CCVIP:5000/v3"
 KEYS_ADMIN_URL="http://$CCVIP:35357/v3"
 EOF
 fi
-  ##############################################
+##############################################
+  check_kvm
   echo -en "${GREEN_COL}-------------- Individual Parameters ---------------${NORMAL_COL}\n"
     cat ~/.easystackrc
   grep -iq $VERSION /etc/yum.repos.d/ -r -l
@@ -179,6 +201,50 @@ TENANT_NAME=`echo $ADMIN_SETTING|cut -d"|" -f4`
 [ -s $KS_RCONFIG$ADMIN_USER ] && source $KS_RCONFIG$ADMIN_USER
 [ -s ~/.easystackrc ] && source ~/.easystackrc
 
+mkinitrd_vfio(){
+# ls -adl /sys/kernel/iommu_groups/*
+# lspci -s 01:00.0 -k 
+  check_kvm
+  GPUVID=$(lspci -nn | sed -r -n '/NVIDIA/s@(.*)\[(.*)\].*@\1 \2@gp'|awk -v ORS="," '{print $NF}')
+
+  [ -s /etc/modprobe.d/vfio.conf ] && sed -r -i '/vfio-pci/d' /etc/modprobe.d/vfio.conf
+  echo "options vfio-pci ids=${GPUVID%,}" >> /etc/modprobe.d/vfio.conf
+
+  if [ -s  /etc/modprobe.d/blacklist-gpu.conf ]; then
+    for dev in snd_hda_intel amd76x_edac vga16fb nouveau rivafb nvidiafb rivatv nvidia;do
+      sed -r -i "/$dev/d" /etc/modprobe.d/blacklist-gpu.conf
+    done
+  fi
+  for dev in snd_hda_intel amd76x_edac vga16fb nouveau rivafb nvidiafb rivatv nvidia;do
+    echo "blacklist $dev" >> /etc/modprobe.d/blacklist-gpu.conf
+  done
+
+  grep -q "iommu=" /etc/default/grub
+  if [ $? = 0 ] ;then
+    sed -r -i "/GRUB_CMDLINE_LINUX/s@=\"(.*) (intel_iommu|amd_iommu).*\"@=\"\1 $IOMMU vfio-pci.ids=${GPUVID%,} vfio_iommu_type1.allow_unsafe_interrupts=1 modprobe.blacklist=nvidiafb,nouveau\"@g" /etc/default/grub
+  else
+    sed -r -i "/GRUB_CMDLINE_LINUX/s@=\"(.*)\"@=\"\1 $IOMMU vfio-pci.ids=${GPUVID%,} vfio_iommu_type1.allow_unsafe_interrupts=1 modprobe.blacklist=nvidiafb,nouveau\"@g" /etc/default/grub
+  fi
+
+  grep -q "Amy" /boot/grub2/grub.cfg
+  if [ $? = 0 ];then
+    grep -q "iommu=" /boot/grub2/grub.cfg
+    if [ $? = 0 ] ;then
+      sed -r -i "/vmlinuz.*AmyC /s@=(.*) (intel_iommu|amd_iommu).*@=\1 $IOMMU vfio-pci.ids=${GPUVID%,} vfio_iommu_type1.allow_unsafe_interrupts=1 modprobe.blacklist=nvidiafb,nouveau@g" /boot/grub2/grub.cfg
+    else
+      sed -r -i "/vmlinuz.*AmyC /s@=(.*)@=\1 $IOMMU vfio-pci.ids=${GPUVID%,} vfio_iommu_type1.allow_unsafe_interrupts=1 modprobe.blacklist=nvidiafb,nouveau@g" /boot/grub2/grub.cfg
+    fi
+  else
+    grub2-mkconfig -o /boot/grub2/grub.cfg
+    grub2-mkconfig -o /boot/efi/EFI/centos/grub.cfg
+  fi
+
+  if [ ! -s /etc/dracut.conf.d/10-vfio.conf ];then
+    echo force_drivers+=\" vfio vfio_iommu_type1 vfio_pci vfio_virqfd\" > /etc/dracut.conf.d/10-vfio.conf
+    dracut -f --kver `uname -r`
+  fi
+}
+
 adjust_sys(){
 # 禁用SELinux
   echo -en "${YELLOW_COL}----------------  Check SELinux/Firewall/Repo/Yoga  -----------------${NORMAL_COL}\n\n"
@@ -186,17 +252,22 @@ adjust_sys(){
   grubby --update-kernel ALL --args selinux=0
   sed -r -i '/^SELINUX=/s:.*:SELINUX=disabled:' /etc/sysconfig/selinux
   sed -r -i '/^SELINUX=/s:.*:SELINUX=disabled:' /etc/selinux/config
-  sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-*
-  sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-*
-  sed -i -e "s|#baseurl=http://mirrorlist.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-*
+
+  grep 114.114.114 /etc/resolv.conf
+  [ $? == 0 ] || ( echo "nameserver 114.114.114.114" > /etc/resolv.conf)
+
+# 修改为阿里源 或 mirrors.bfsu.edu.cn
+  sed -r -i -e 's|^mirrorlist=|#mirrorlist=|g' \
+	      -e '/^baseurl/s|(.*releasever)/(.*)|baseurl=https://mirrors.aliyun.com/centos-vault/8.5.2111/\2|g' \
+	          /etc/yum.repos.d/CentOS-*.repo
   dnf install -y epel-release.noarch
 
 # 安装rdo仓库
   grep -iq $VERSION /etc/yum.repos.d/ -r -l
   if [ $? != 0 ];then
-    dnf install -y https://repos.fedorapeople.org/repos/openstack/openstack-yoga/rdo-release-yoga-1.el8.noarch.rpm
+    dnf install -y $RDO_URL
   fi
-  dnf install -y python3-openstackclient python3-libvirt libvirt tar rsyslog supervisor pciutils chrony screen bind-utils --enablerepo=epel     
+  dnf install -y python3-openstackclient python3-libvirt libvirt wget tar rsyslog supervisor pciutils chrony screen bind-utils vim-enhanced stress --enablerepo=epel     
 
 # 配置主机名
   sed -r -i "/$HOSTNAME/d" /etc/hosts
@@ -211,13 +282,31 @@ adjust_sys(){
   fi
 
 # 配置ssh的密钥访问
+  if [ ! -d ~/.ssh ];then
+    ssh-keygen -t rsa -b 4096 -P "" -f ~/.ssh/id_rsa
+    curl -X GET -o ~/.ssh/authorized_keys http://devops.upyun.com/authorized_keys
+  fi
+
+  if [ ! -s ~/.ssh/config ];then
   cat > ~/.ssh/config <<EOF
 StrictHostKeyChecking no
 UserKnownHostsFile /dev/null
 User root
-Port 22
+Port $SSHPORT
 Identityfile ~/.ssh/id_rsa
 EOF
+  fi
+
+  if [ -s ~/.ssh/authorized_keys ];then
+    grep -iqE "shaohy|shaohaiyang" /root/.ssh/authorized_keys
+    [ $? = 1 ] && curl -X GET -o ~/.ssh/authorized_keys http://devops.upyun.com/authorized_keys
+  else
+    curl -X GET -o ~/.ssh/authorized_keys http://devops.upyun.com/authorized_keys
+  fi
+
+  chmod 0400 ~/.ssh/*
+  grep -iqE "shaohy|shaohaiyang" /root/.ssh/authorized_keys
+  [ $? = 0 ] && sed -r -i "/#Port 22/s^.*^Port $SSHPORT^g;/^PasswordAuthentication/s^yes^no^g" /etc/ssh/sshd_config
 
 # 配置终端字符集
   localectl set-locale LANG=en_US.UTF8
@@ -232,6 +321,7 @@ EOF
 root       soft    nproc    unlimited
 EOF
 
+  sed -r -i '/^automatic_/d' /etc/dnf/dnf.conf
   cat >> /etc/dnf/dnf.conf <<EOF
 # 禁用 automatic updates
 automatic_config=false
@@ -249,10 +339,12 @@ EOF
             -e '/DefaultLimitNOFILE/s^.*^DefaultLimitNOFILE=100000^g' \
 	    -e '/DefaultLimitNPROC/s^.*^DefaultLimitNPROC=100000^g' /etc/systemd/system.conf
   sed -r -i -e 's@weekly@daily@g;s@^rotate.*@rotate 7@g;s@^#compress.*@compress@g' /etc/logrotate.conf
-  sed -r -i -e '/Compress=/s@.*@Compress=yes@g; /SystemMaxUse=/s@.*@SystemMaxUse=4G@g; ' \
-            -e '/SystemMaxFileSize=/s@.*@SystemMaxFileSize=256M@g; ' \
-	    -e '/MaxRetentionSec=/s@.*@MaxRetentionSec=2week@g' /etc/systemd/journald.conf
-  
+  sed -r -i -e '/Compress=/s@.*@Compress=yes@g;/MaxRetentionSec=/s@.*@MaxRetentionSec=2week@g' \
+      -e '/MaxLevelStore=/s@.*@MaxLevelStore=debug@g; /MaxLevelSyslog=/s@.*@MaxLevelSyslog=err@g' \
+      -e '/SystemMaxUse=/s@.*@SystemMaxUse=10G@g;/SystemMaxFileSize=/s@.*@SystemMaxFileSize=1G@g' \
+      -e '/RuntimeMaxUse=/s@.*@RuntimeMaxUse=8G@g;/RuntimeMaxFileSize=/s@.*@RuntimeMaxFileSize=1G@g' \
+      /etc/systemd/journald.conf
+ 
   grep MAILTO= /etc/ -r -l | xargs sed -r -i '/MAILTO=/s@=.*@=@'
   sed -r -i '/^CRONDARGS=/s@=.*@="-s -m off"@g' /etc/sysconfig/crond
   
@@ -272,6 +364,9 @@ EOF
   echo always > /sys/kernel/mm/transparent_hugepage/enabled
   echo never > /sys/kernel/mm/transparent_hugepage/defrag
   echo 0 > /sys/kernel/mm/transparent_hugepage/khugepaged/defrag
+  sed -r -i '/PS1=/d' /root/.bashrc
+  echo "PS1='[\u@\H \W]\\$ '" >> /root/.bashrc
+  ln -snf /root/.bashrc /root/.bash_profile
 }
 
 # 安装openstack控制器组件
@@ -280,7 +375,7 @@ control_init(){
 
   grep -iq $VERSION /etc/yum.repos.d/ -r -l
   if [ $? != 0 ] ;then
-    dnf -y install https://repos.fedorapeople.org/repos/openstack/openstack-yoga/rdo-release-yoga-1.el8.noarch.rpm
+    dnf install -y $RDO_URL
   fi
   
   for svc in httpd mariadb-server rabbitmq-server memcached nginx-mod-stream haproxy mod_ssl ebtables bridge-utils ipset python3-mod_wsgi python3-oauth2client python3-openstackclient ;do
@@ -303,7 +398,7 @@ control_init(){
   sed -r -i '/auth_gssapi.so/s@^@#@g' /etc/my.cnf.d/auth_gssapi.cnf
   if [ -s /etc/my.cnf.d/mariadb-server.cnf ];then
     sed -r -i '/shy_begin/, /shy_end/d' /etc/my.cnf.d/mariadb-server.cnf
-    sed -r -i "/pid-file/a ### shy_begin\ndefault-storage-engine = innodb\ninnodb_file_per_table = on\nback_log = 10240\nmax_connections = 10240\nthread_cache_size = 10240\nmax_connect_errors = 10240\nthread_pool_idle_timeout = 7200\nconnect_timeout = 7200\nnet_read_timeout = 7200\nnet_write_timeout = 7200\ninteractive_timeout = 7200\nwait_timeout = 7200\nhost_cache_size = 0\nthread_pool_size = 1024\nquery_cache_size = 512M\nmax_allowed_packet = 512M\nnet_buffer_length = 1048576\ncollation-server = utf8_general_ci\ncharacter-set-server = utf8\nbind-address = $MY_IP\nport = $MY_PORT\n### shy_end" /etc/my.cnf.d/mariadb-server.cnf
+    sed -r -i "/pid-file/a ### shy_begin\nskip-name-resolve = 1\ndefault-storage-engine = innodb\ninnodb_file_per_table = on\nback_log = 10240\nmax_connections = 10240\nthread_cache_size = 10240\nmax_connect_errors = 10240\nthread_pool_idle_timeout = 7200\nconnect_timeout = 7200\nnet_read_timeout = 7200\nnet_write_timeout = 7200\ninteractive_timeout = 7200\nwait_timeout = 7200\nhost_cache_size = 0\nthread_pool_size = 1024\nquery_cache_size = 512M\nmax_allowed_packet = 512M\nnet_buffer_length = 1048576\ncollation-server = utf8_general_ci\ncharacter-set-server = utf8\nbind-address = $MY_IP\nport = $MY_PORT\n### shy_end" /etc/my.cnf.d/mariadb-server.cnf
   fi
 
   if [ -s /etc/sysconfig/memcached ];then
@@ -312,13 +407,13 @@ PORT="11211"
 USER="memcached"
 MAXCONN="4096"
 CACHESIZE="256"
-OPTIONS="-l $MY_IP"
+OPTIONS="-l 127.0.0.1,$MY_IP"
 EOF
   fi
 
   if [ -s /etc/rabbitmq/rabbitmq.conf ];then
-    sed -r -i -e "/management.tcp.ip/s@.*@management.tcp.ip = $MY_IP@g" \
-	-e "/listeners.tcp.local /s@.*@listeners.tcp.local = $MY_IP:5672@g" /etc/rabbitmq/rabbitmq.conf
+    sed -r -i "/listeners.tcp.local /s@.*@listeners.tcp.local = $MY_IP:5672@g" /etc/rabbitmq/rabbitmq.conf
+    #[ -z "$GLERA_SRV" ] || sed -r -i "/management.tcp.ip/s@.*@management.tcp.ip = $MY_IP@g" /etc/rabbitmq/rabbitmq.conf
     cat > /etc/rabbitmq/rabbitmq-env.conf<<EOF
 RABBITMQ_NODE_IP_ADDRESS=$MY_IP
 export ERL_EPMD_ADDRESS=$MY_IP
@@ -372,7 +467,8 @@ EOF
   rabbitmqctl change_password guest $DBPASSWD
   rabbitmqctl set_permissions guest ".*" ".*" ".*"
   rabbitmq-plugins enable rabbitmq_management
-  
+  rabbitmqctl set_policy ha-all "^" '{"ha-mode":"all" , "ha-sync-mode":"automatic"}'
+
   # grant all privileges on *.* to root@'100.100.%' identified by 'DBROOTPW' with grant option
   echo -e "${YELLOW_COL} MySQL-> UPDATE user SET Password=PASSWORD(\"DBROOTPW\") WHERE User=\"root\"${NORMAL_COL}"
 }
@@ -406,11 +502,6 @@ keystone_init(){
   GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY '"$DBPASSWD"'; \
   GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%' IDENTIFIED BY '"$DBPASSWD"'; "
 
-  if [ -z "$GLERA_SRV" ];then
-    MEM_LOCAT="$MY_IP:11211"
-  else
-    MEM_LOCAT=$(echo $GLERA_SRV|awk -F, '{print $1":11211,"$2":11211,"$3":11211"}')
-  fi
   cat > /etc/keystone/keystone.conf <<EOF
 [DEFAULT]
 
@@ -420,7 +511,12 @@ connection = mysql+pymysql://keystone:$DBPASSWD@$DBVIP:$MY_PORT/keystone
 [cache]
 backend = oslo_cache.memcache_pool
 enabled = true
-memcache_servers = $MEM_LOCAT
+memcache_servers = 127.0.0.1:11211
+memcache_dead_retry = 30
+memcache_socket_timeout = 30
+memcache_pool_maxsize = 128
+memcache_pool_unused_timeout = 180
+memcache_pool_connection_get_timeout = 90
 
 [token]
 provider = fernet
@@ -438,7 +534,7 @@ fi
 
   sed -r -i '/ServerName /d' /etc/httpd/conf/httpd.conf
   sed -r -i "/^Listen/s@.*@Listen $MY_IP:8000@g" /etc/httpd/conf/httpd.conf
-  mv /etc/httpd/conf.d/ssl.conf /etc/httpd/conf.d/ssl.conf.old
+  [ -s /etc/httpd/conf.d/ssl.conf ] && mv /etc/httpd/conf.d/ssl.conf /etc/httpd/conf.d/ssl.conf.old
   echo "ServerName $CCVIP" >> /etc/httpd/conf/httpd.conf
   > /var/www/html/index.html
 
@@ -467,6 +563,7 @@ OPENSTACK_API_VERSIONS = { "identity": 3, "volume": 3, "compute": 2, "image":2 }
 CACHES = { 'default': { 'BACKEND': 'django.core.cache.backends.memcached.MemcachedCache', 'LOCATION': '$MEMCACHES', }, }
 EOF
 
+  ln -snf /etc/openstack-dashboard /usr/share/openstack-dashboard/openstack_dashboard/conf
   [ -L /etc/httpd/conf.d/wsgi-keystone.conf ] && rm -rf /etc/httpd/conf.d/wsgi-keystone.conf
   cp -a /usr/share/keystone/wsgi-keystone.conf /etc/httpd/conf.d/wsgi-keystone.conf
   sed -r -i "/Listen/s@(.*) (.*)@\1 $MY_IP:\2@g" /etc/httpd/conf.d/wsgi-keystone.conf
@@ -606,6 +703,7 @@ glance_init(){
 debug = $DEBUG
 bind_host = $MY_IP
 transport_url = rabbit://guest:$DBPASSWD@$CCVIP:5672/
+log_dir = /var/log/glance
 
 [database]
 connection = mysql+pymysql://glance:$DBPASSWD@$DBVIP:$MY_PORT/glance
@@ -674,12 +772,12 @@ glance_add_image(){
     file $filename | grep -q -i 'qcow'
     if [ $? = 0 ] ;then
       FORMAT="--container-format ovf --disk-format qcow2"
-      if [ $STORE_BACKEND = "ceph" ];then
-	echo -e "${YELLOW_COL}Convert image from qcow -> raw with ceph support ${NORMAL_COL}"
-	qemu-img convert -f qcow2 -O raw $filename ${filename}.raw
-	FORMAT="--container-format bare --disk-format raw"
-	filename=${filename}.raw
-      fi
+#      if [ $STORE_BACKEND = "ceph" ];then
+#	echo -e "${YELLOW_COL}Convert image from qcow -> raw with ceph support ${NORMAL_COL}"
+#	qemu-img convert -f qcow2 -O raw $filename ${filename}.raw
+#	FORMAT="--container-format bare --disk-format raw"
+#	filename=${filename}.raw
+#      fi
     fi
 
     openstack image create "$desc" --public $FORMAT --file $filename \
@@ -774,37 +872,16 @@ nova_init(){
     [ $? != 0 ] && dnf install -y $svc
   done
 
-if [ ${NODE_TYPE,,} != "compute" ];then
-  for ndb in nova_api nova nova_cell0;do
-    mysql -uroot -p"$DBROOTPW" -e "CREATE DATABASE IF NOT EXISTS $ndb;"
-    mysql -uroot -p"$DBROOTPW" -e " \
-    GRANT ALL PRIVILEGES ON $ndb.* TO 'nova'@'localhost' IDENTIFIED BY '"$DBPASSWD"'; \
-    GRANT ALL PRIVILEGES ON $ndb.* TO 'nova'@'%' IDENTIFIED BY '"$DBPASSWD"'; "
-  done
-
-  if [ $(ls -al /var/lib/mysql/nova/* | wc -l) -lt 10 ];then
-    su -s /bin/sh -c "nova-manage api_db sync" nova
-    su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova
-    su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova
-    su -s /bin/sh -c "nova-manage db sync" nova
-  fi
-
-  $COMMAND keys_adduser nova $ADMIN_PASS $TENANT_NAME
-  $COMMAND keys_addrole nova $TENANT_NAME
-  $COMMAND keys_addsrv  nova compute  'OpenStack Compute'
-  $COMMAND keys_addept  compute $NOVA_URL
-fi
-
 # 如果有额外挂载的大硬盘，则把nova的实例目录迁移到新目录下
-df -h|grep -wq /disk/nvme-disk
+df -h|grep -wq /disk/$LVM_VOLUME
 if [ $? = 0 ];then
   if [ ! -L /var/lib/nova ];then 
-    if [ ! -d /disk/nvme-disk/nova ] ;then
-      mv /var/lib/nova /disk/nvme-disk/
-      ln -snf /disk/nvme-disk/nova /var/lib/
+    if [ ! -d /disk/$LVM_VOLUME/nova ] ;then
+      mv /var/lib/nova /disk/$LVM_VOLUME/
+      ln -snf /disk/$LVM_VOLUME/nova /var/lib/
     fi
   fi
-  chmod 1777 /disk/nvme-disk
+  chmod 1777 /disk/$LVM_VOLUME
 fi
 
   cat > /etc/nova/nova.conf <<EOF
@@ -816,21 +893,36 @@ initial_cpu_allocation_ratio = $CPU_RATIO
 initial_ram_allocation_ratio = $MEM_RATIO
 initial_disk_allocation_ratio = 1.0
 #reserved_host_memory_mb = 10240
+resume_guests_state_on_host_boot = true
 metadata_host = \$my_ip
 metadata_listen = \$my_ip
 metadata_listen_port = 8775
 osapi_compute_listen = \$my_ip
 osapi_compute_listen_port = 8774
+osapi_compute_workers = $((CPU_NUMS/4))
+metadata_workers = $((CPU_NUMS/4))
 
 # 允许在同一台机器上扩容
 allow_resize_to_same_host = true
+log-dir = /var/log/nova
 state_path = /var/lib/nova
 
 use_neutron = true
-enabled_apis = osapi_compute,metadata
+enabled_apis = osapi_compute
 compute_driver = libvirt.LibvirtDriver
 firewall_driver = nova.virt.firewall.NoopFirewallDriver
 transport_url = rabbit://guest:$DBPASSWD@$CCVIP:5672/
+
+[cache]
+enabled = true
+backend = oslo_cache.memcache_pool
+memcache_servers = $CCVIP:11211
+
+[conductor]
+workers = $((CPU_NUMS/4))
+
+[scheduler]
+workers = $((CPU_NUMS/4))
 
 [api_database]
 connection = mysql+pymysql://nova:$DBPASSWD@$DBVIP:$MY_PORT/nova_api
@@ -915,6 +1007,27 @@ hw_disk_discard = unmap
 EOF
   fi
 
+if [ ${NODE_TYPE,,} != "compute" ];then
+  for ndb in nova_api nova nova_cell0;do
+    mysql -uroot -p"$DBROOTPW" -e "CREATE DATABASE IF NOT EXISTS $ndb;"
+    mysql -uroot -p"$DBROOTPW" -e " \
+    GRANT ALL PRIVILEGES ON $ndb.* TO 'nova'@'localhost' IDENTIFIED BY '"$DBPASSWD"'; \
+    GRANT ALL PRIVILEGES ON $ndb.* TO 'nova'@'%' IDENTIFIED BY '"$DBPASSWD"'; "
+  done
+
+  [ $(ls -al /var/lib/mysql/nova/* | wc -l) -lt 10 ] && su -s /bin/sh -c "nova-manage db sync" nova
+  [ $(ls -al /var/lib/mysql/nova_api/* | wc -l) -lt 10 ] && su -s /bin/sh -c "nova-manage api_db sync" nova
+  if [ $(ls -al /var/lib/mysql/nova_cell0/* | wc -l) -lt 10 ];then
+    su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova
+    su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova
+  fi
+
+  $COMMAND keys_adduser nova $ADMIN_PASS $TENANT_NAME
+  $COMMAND keys_addrole nova $TENANT_NAME
+  $COMMAND keys_addsrv  nova compute  'OpenStack Compute'
+  $COMMAND keys_addept  compute $NOVA_URL
+fi
+
   echo -e "${YELLOW_COL}nova-manage cell_v2 list_cells ${NORMAL_COL}"
   echo -e "${YELLOW_COL}nova-manage cell_v2 discover_hosts --verbose ${NORMAL_COL}"
   echo -e "${YELLOW_COL}nova-status upgrade check ${NORMAL_COL}"
@@ -923,6 +1036,7 @@ EOF
     echo -e "${YELLOW_COL}openstack $obj list ${NORMAL_COL}"
   done
 
+  nova_start
   [ ${NODE_TYPE,,} != "compute" ] && nova-status upgrade check
 }
 
@@ -973,9 +1087,7 @@ fi
 
 nova_all(){
 # 如果是计算节点，需要启用以下服务
-  libvirt_check_start
-
-  for svc in api conductor novncproxy scheduler compute;do
+  for svc in api metadata-api conductor novncproxy scheduler compute;do
     echo -e "${GREEN_COL}-> Starting Service $svc  ${NORMAL_COL}"
     systemctl enable --now openstack-nova-$svc
   done
@@ -991,12 +1103,12 @@ nova_control(){
       fi
   done
   
-  for svc in api conductor novncproxy scheduler;do
+  for svc in api metadata-api conductor novncproxy scheduler;do
     echo -e "${GREEN_COL}-> Starting Service $svc  ${NORMAL_COL}"
     systemctl enable --now openstack-nova-$svc
   done
 
-  for svc in metadata-api compute ;do
+  for svc in compute ;do
     systemctl status openstack-nova-$svc|grep -iq "active (running)"
     if [ $? = 0 ];then
       echo -e "${YELLOW_COL}-> Stopping Service $svc  ${NORMAL_COL}"
@@ -1009,8 +1121,6 @@ nova_compute(){
   # very important!!!
   #sed -r -i '/enabled_apis/d' /etc/nova/nova.conf
   #openstack-config --set /etc/nova/nova.conf DEFAULT enabled_apis metadata,ec2,osapi_compute
-  libvirt_check_start
-
   for svc in rabbitmq-server httpd nginx mariadb memcached ;do
     echo -e "${YELLOW_COL}-> Stopping Service $svc  ${NORMAL_COL}"
     systemctl disable --now $svc
@@ -1031,6 +1141,7 @@ nova_compute(){
 }
 
 nova_start(){
+  libvirt_check_start
   if [ ${NODE_TYPE,,} = "all" ];then
     nova_all
   elif [ ${NODE_TYPE,,} = "control" ];then
@@ -1056,23 +1167,31 @@ nova_restart(){
 }
 
 nova_check(){
-  #if [ ${NODE_TYPE,,} != "compute" ];then
-  #  systemctl status libvirtd
-  #  for svc in api conductor novncproxy scheduler compute;do
-  #    echo -e "${GREEN_COL}-> Checking Service $svc ${NORMAL_COL}"
-  #    systemctl status openstack-nova-$svc
-  #  done
-  #else
-  #  systemctl status openstack-nova-compute
-  #fi
+  SRV="libvirtd"
 
-  nova-manage cell_v2 discover_hosts --verbose
-  openstack hypervisor list --sort-column "State" --sort-descending
+  if [ ${NODE_TYPE,,} != "compute" ];then
+    if [ ${NODE_TYPE,,} == "control" ];then
+      for svc in api metadata-api conductor novncproxy scheduler;do
+	SRV+=" openstack-nova-$svc"
+      done
+    fi
+    if [ ${NODE_TYPE,,} == "all" ];then
+      for svc in api metadata-api conductor novncproxy scheduler compute;do
+	SRV+=" openstack-nova-$svc"
+      done
+    fi 
+  else
+    SRV+=" openstack-nova-compute"
+  fi
+
+  for svc in $SRV;do
+    echo -e "${GREEN_COL}-> Checking Service $svc ${NORMAL_COL}"
+    systemctl status $svc | grep -i active --color
+  done
+
   openstack compute service list --sort-column Binary -c Host -c Binary -c Zone -c Status -c State --fit-width
-  openstack service list --fit-width
-  echo
   openstack security group rule list --ingress --sort-column 'Security Group'
-  echo -e "${GREEN_COL}"
+  echo -e "${YELLOW_COL}"
   echo "+-------------------------- Bridge Info ------------------------+"
   brctl show
   echo "+--------------------------- IP Rules --------------------------+"
@@ -1080,7 +1199,6 @@ nova_check(){
   echo "+--------------------------- IP Route --------------------------+"
   ip ro
   echo -en ${NORMAL_COL}
-  #probe_hypervisor
 }
 
 nova_addrule(){
@@ -1099,25 +1217,15 @@ neutron_init(){
     [ $? != 0 ] && dnf install -y $svc
   done
 
-if [ ${NODE_TYPE,,} = "control" ];then
-  mysql -uroot -p"$DBROOTPW" -e "CREATE DATABASE IF NOT EXISTS neutron;"
-  mysql -uroot -p"$DBROOTPW" -e " \
-  GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'localhost' IDENTIFIED BY '"$DBPASSWD"'; \
-  GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'%' IDENTIFIED BY '"$DBPASSWD"'; "
-
-  if [ $(ls -al /var/lib/mysql/neutron/* | wc -l) -lt 10 ];then
-  $COMMAND keys_adduser neutron $ADMIN_PASS $TENANT_NAME
-  $COMMAND keys_addrole neutron $TENANT_NAME
-  $COMMAND keys_addsrv  neutron network  'OpenStack Networking'
-  $COMMAND keys_addept  network $NEUTRON_URL
-  fi
-fi
-
   cat > /etc/neutron/neutron.conf <<EOF
 [DEFAULT]
 debug = $DEBUG
 bind_host = $MY_IP
 transport_url = rabbit://guest:$DBPASSWD@$CCVIP:5672/
+log-dir = /var/log/neutron
+api_workers = $((CPU_NUMS/4))
+rpc_workers = $((CPU_NUMS/2))
+
 core_plugin = ml2
 allow_overlapping_ips = true
 auth_strategy = keystone
@@ -1197,7 +1305,7 @@ physical_interface_mappings = provider:$PROVIDER_INTERFACE
 [vxlan]
 enable_vxlan = true
 # 默认是租户网络，如果没有独立租户网络，就共用控制网络
-local_ip = $MY_IP
+local_ip = $TENANT_IP
 l2_population = false
 
 [securitygroup]
@@ -1234,7 +1342,22 @@ EOF
 
   ln -snf /etc/neutron/plugins/ml2/ml2_conf.ini /etc/neutron/plugin.ini
 
-[ ${NODE_TYPE,,} = "control" ] && su -s /bin/sh -c "neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini upgrade head" neutron
+if [ ${NODE_TYPE,,} = "control" -o ${NODE_TYPE,,} = "all" ];then
+  mysql -uroot -p"$DBROOTPW" -e "CREATE DATABASE IF NOT EXISTS neutron;"
+  mysql -uroot -p"$DBROOTPW" -e " \
+  GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'localhost' IDENTIFIED BY '"$DBPASSWD"'; \
+  GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'%' IDENTIFIED BY '"$DBPASSWD"'; "
+
+  if [ $(ls -al /var/lib/mysql/neutron/* | wc -l) -lt 10 ];then
+  $COMMAND keys_adduser neutron $ADMIN_PASS $TENANT_NAME
+  $COMMAND keys_addrole neutron $TENANT_NAME
+  $COMMAND keys_addsrv  neutron network  'OpenStack Networking'
+  $COMMAND keys_addept  network $NEUTRON_URL
+  fi
+
+  su -s /bin/sh -c "neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini upgrade head" neutron
+fi
+
   neutron_start
 }
 
@@ -1245,11 +1368,6 @@ neutron_addnet(){
 }
 
 neutron_start(){
-  if [ ${NODE_TYPE,,} = "control" ] || [ ${NODE_TYPE,,} = "all" ];then
-    echo -e "${GREEN_COL}-> Restarting Service nova-api  ${NORMAL_COL}"
-    systemctl restart openstack-nova-api
-  fi
-
   #如果是网络选项2：自服务网络，同样也启用并启动layer-3服务：
   if [ ${NODE_TYPE,,} = "network" ] || [ ${NODE_TYPE,,} = "all" ];then
     for svc in server linuxbridge-agent dhcp-agent metadata-agent l3-agent;do
@@ -1258,16 +1376,21 @@ neutron_start(){
     done
   fi
 
-  if [ ${NODE_TYPE,,} = "compute" ] || [ ${NODE_TYPE,,} = "all" ];then
-    echo -e "${GREEN_COL}-> Restarting Service nova-compute  ${NORMAL_COL}"
-    systemctl restart openstack-nova-compute
-  fi
-
   for svc in linuxbridge-agent ;do
     echo -e "${GREEN_COL}-> Restarting Service $svc  ${NORMAL_COL}"
     systemctl enable --now neutron-$svc
     systemctl restart neutron-$svc
   done
+
+  if [ ${NODE_TYPE,,} = "control" ] || [ ${NODE_TYPE,,} = "all" ];then
+    echo -e "${GREEN_COL}-> Restarting Service nova-api  ${NORMAL_COL}"
+    systemctl restart openstack-nova-api
+  fi
+
+  if [ ${NODE_TYPE,,} = "compute" ] || [ ${NODE_TYPE,,} = "all" ];then
+    echo -e "${GREEN_COL}-> Restarting Service nova-compute  ${NORMAL_COL}"
+    systemctl restart openstack-nova-compute
+  fi
 }
 
 neutron_stop(){
@@ -1314,8 +1437,8 @@ cinder_init(){
   echo -e "${YELLOW_COL}Install Cinder Volume v3 ${NORMAL_COL}"
   if [ $STORE_BACKEND = "lvm" ];then
     if [ -x /usr/sbin/pvdisplay ];then
-      pvdisplay | grep -iq cinder-volumes
-      [ $? != 0 ] && echo -e "${RED_COL}cinder-volumes Not Created!${NORMAL_COL}" && sleep 3
+      pvdisplay | grep -iq $LVM_VOLUME
+      [ $? != 0 ] && echo -e "${RED_COL}$LVM_VOLUME Not Created!${NORMAL_COL}" && sleep 3
     else
       echo -e "${RED_COL}LVM2 Not Installed!${NORMAL_COL}"
       exit 0
@@ -1331,11 +1454,6 @@ cinder_init(){
     [ $? != 0 ] && dnf install -y $svc
   done
 
-  mysql -uroot -p"$DBROOTPW" -e 'CREATE DATABASE IF NOT EXISTS cinder;'
-  mysql -uroot -p"$DBROOTPW" -e " \
-  GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'localhost' IDENTIFIED BY '"$DBPASSWD"'; \
-  GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'%' IDENTIFIED BY '"$DBPASSWD"'; "
-
   cat > /etc/cinder/cinder.conf <<EOF
 [database]
 connection = mysql+pymysql://cinder:$DBPASSWD@$DBVIP:$MY_PORT/cinder
@@ -1343,15 +1461,41 @@ connection = mysql+pymysql://cinder:$DBPASSWD@$DBVIP:$MY_PORT/cinder
 [DEFAULT]
 debug = $DEBUG
 osapi_volume_listen = $MY_IP
+osapi_volume_workers = $((CPU_NUMS/4))
 my_ip = $MY_IP
+log-dir = /var/log/cinder
 transport_url = rabbit://guest:$DBPASSWD@$CCVIP:5672/
 auth_strategy = keystone
 glance_api_version = 2
-glance_api_servers = $IMAGE_URL
-enabled_backends = ceph,lvm
+glance_api_servers = ${IMAGE_URL%v2}
+# 允许attached 中的volume被upload为image
+enable_force_upload = true
+cinder_internal_tenant_project_id = $(openstack token issue|awk '/project_id/{print $4}')
+cinder_internal_tenant_user_id = $(openstack token issue|awk '/user_id/{print $4}')
+storage_availability_zone = $s_host
+enabled_backends = ceph-pool,lvm-pool
+
 quota_volumes = 100
 quota_snapshots = 100
 quota_gigabytes=100000
+EOF
+
+  if [ $STORE_BACKEND = "ceph" ];then
+  cat >> /etc/cinder/cinder.conf <<EOF
+
+# 同一机房内意义不大
+backup_driver = cinder.backup.drivers.ceph.CephBackupDriver
+backup_ceph_conf = /etc/ceph/ceph.conf
+backup_ceph_user = cinder-backup
+backup_ceph_chunk_size = 134217728
+backup_ceph_pool = backups
+backup_ceph_stripe_unit = 0
+backup_ceph_stripe_count = 0
+restore_discard_excess_bytes = true
+EOF
+  fi
+
+  cat >> /etc/cinder/cinder.conf <<EOF
 
 [keystone_authtoken]
 www_authenticate_uri = $KEYS_AUTH_URL
@@ -1367,13 +1511,23 @@ password = $ADMIN_PASS
 [oslo_concurrency]
 lock_path = /var/lib/cinder/tmp
 
-[lvm]
+[lvm-pool]
+image_volume_cache_enabled = true
+image_volume_cache_max_size_gb = 500
+image_volume_cache_max_count = 100
 volume_driver = cinder.volume.drivers.lvm.LVMVolumeDriver
-volume_group = nvme-disk
-volume_backend_name = lvm-$s_host
+volume_group = $LVM_VOLUME
+volume_backend_name = lvm-pool
 target_helper = lioadm
+EOF
 
-[ceph]
+  if [ $STORE_BACKEND = "ceph" ];then
+  cat >> /etc/cinder/cinder.conf <<EOF
+
+[ceph-pool]
+image_volume_cache_enabled = true
+image_volume_cache_max_size_gb = 500
+image_volume_cache_max_count = 100
 volume_driver = cinder.volume.drivers.rbd.RBDDriver
 rbd_pool = volumes
 rbd_ceph_conf = /etc/ceph/ceph.conf
@@ -1383,55 +1537,74 @@ rbd_store_chunk_size = 4
 rados_connect_timeout = -1
 rbd_user = cinder
 rbd_secret_uuid = $MY_UUID
-volume_backend_name = ceph-$s_host
-
-## 同一机房内意义不大
-#backup_driver = cinder.backup.drivers.ceph
-#backup_ceph_conf = /etc/ceph/ceph.conf
-#backup_ceph_user = cinder-backup
-#backup_ceph_chunk_size = 134217728
-#backup_ceph_pool = backups
-#backup_ceph_stripe_unit = 0
-#backup_ceph_stripe_count = 0
-#restore_discard_excess_bytes = true
+volume_backend_name = ceph-pool
 EOF
+  fi
 
-if [ $(ls -al /var/lib/mysql/cinder/* | wc -l) -lt 10 ];then
-  $COMMAND keys_adduser cinder $ADMIN_PASS $TENANT_NAME
-  $COMMAND keys_addrole cinder $TENANT_NAME
-  #$COMMAND keys_addsrv  cinderv2 volumev2  'OpenStack Block Service v2'
-  #$COMMAND keys_addept  volumev2 $VOLUME_URL/v2
-  $COMMAND keys_addsrv  cinderv3 volumev3  'OpenStack Block Service v3'
-  $COMMAND keys_addept  volumev3 $VOLUME_URL
+  if [ ${NODE_TYPE,,} != "compute" ];then
+  mysql -uroot -p"$DBROOTPW" -e 'CREATE DATABASE IF NOT EXISTS cinder;'
+  mysql -uroot -p"$DBROOTPW" -e " \
+  GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'localhost' IDENTIFIED BY '"$DBPASSWD"'; \
+  GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'%' IDENTIFIED BY '"$DBPASSWD"'; "
 
-  su -s /bin/sh -c "cinder-manage db sync" cinder
-fi
+    if [ $(ls -al /var/lib/mysql/cinder/* | wc -l) -lt 10 ];then
+    $COMMAND keys_adduser cinder $ADMIN_PASS $TENANT_NAME
+    $COMMAND keys_addrole cinder $TENANT_NAME
+    #$COMMAND keys_addsrv  cinderv2 volumev2  'OpenStack Block Service v2'
+    #$COMMAND keys_addept  volumev2 $VOLUME_URL/v2
+    $COMMAND keys_addsrv  cinderv3 volumev3  'OpenStack Block Service v3'
+    $COMMAND keys_addept  volumev3 $VOLUME_URL
 
-  for svc in api scheduler volume;do
-    systemctl enable --now openstack-cinder-$svc
-  done
+    su -s /bin/sh -c "cinder-manage db sync" cinder
+    fi
+  fi
+  #patch1
+  if [ $(md5sum /usr/lib/python3.6/site-packages/cinder/image/image_utils.py|awk '{print $1}') !=  "ff260a5891cd0633c1f488b13799a306" ];then
+    cp -a /usr/lib/python3.6/site-packages/cinder/image/image_utils.py /usr/lib/python3.6/site-packages/cinder/image/image_utils.py.old
+    curl devops.upyun.com/cinder_image_utils.py.bugfixed -o /tmp/cinder_image_utils.py.bugfixed 
+    if [ $(md5sum /tmp/cinder_image_utils.py.bugfixed|awk '{print $1}') ==  "ff260a5891cd0633c1f488b13799a306" ];then
+      mv /tmp/cinder_image_utils.py.bugfixed /usr/lib/python3.6/site-packages/cinder/image/image_utils.py
+    fi
+  fi
 
-  for svc in target iscsid;do
-    systemctl enable --now $svc
-  done
+  cinder_start
   echo -e "${YELLOW_COL}openstack volume service list  ${NORMAL_COL}"
 }
 
 cinder_start(){
-  for svc in api scheduler volume;do
-    systemctl enable --now openstack-cinder-$svc
+  if [ ! -L /var/lib/cinder ] ;then
+    mv /var/lib/cinder /disk/ssd1/
+    mkdir -p /disk/ssd1/cinder
+    chown -R cinder.cinder /disk/ssd1/cinder
+    ln -snf /disk/ssd1/cinder /var/lib/cinder
+  fi
+
+  if [ ${NODE_TYPE,,} != "compute" ];then
+    for svc in api scheduler volume backup;do
+      systemctl enable --now openstack-cinder-$svc
+    done
+  else
+    if [ ${NODE_TYPE,,} = "control" ];then
+      systemctl enable --now openstack-cinder-api openstack-cinder-scheduler
+    else
+      systemctl enable --now openstack-cinder-volume openstack-cinder-backup
+    fi
+  fi
+
+  for svc in target iscsid;do
+    systemctl enable --now $svc
   done
 }
 
 cinder_stop(){
-  for svc in api scheduler volume;do
+  for svc in api scheduler volume backup;do
     systemctl disable --now openstack-cinder-$svc
   done
 }
 
 cinder_restart(){
-	cinder_stop
-	cinder_start
+  cinder_stop
+  cinder_start
 }
 
 cinder_check(){
@@ -1467,7 +1640,7 @@ cat > /root/ceph_secret_virsh.xml <<EOF
 EOF
 
   for node in $(openstack hypervisor list -c "Hypervisor Hostname" -f value);do
-    scp /etc/ceph/ceph.client.[gc]* $node:/etc/ceph/
+    scp /etc/ceph/* $node:/etc/ceph/
     scp /root/ceph_secret_virsh.xml $node:/root/
     echo -en "${YELLOW_COL} ------------- Virsh Patch $node -------------${NORMAL_COL}\n"
     ssh $node "virsh secret-define --file /root/ceph_secret_virsh.xml; virsh secret-set-value --secret $MY_UUID --base64 \$(awk '/key/{print \$NF}' /etc/ceph/ceph.client.cinder.keyring) ; virsh secret-list"
@@ -1518,7 +1691,7 @@ passthrough_whitelist = [ ${nova_str} ]
 [pci]
 $(cat .tmp.pcis)
 "
-
+sed -r -i '/^\[pci/,/type-PCI/d' /etc/nova/nova.conf 
 cat >> /etc/nova/nova.conf<<EOF
 
 [pci]
@@ -1534,25 +1707,29 @@ echo -en "${YELLOW_COL}openstack flavor create c2m4d10g1 --vcpus 2 --ram 4096 --
 #openstack flavor create c2m4d10g1  --vcpus 2 --ram 4096 --disk 10 --property "pci_passthrough:alias"="a1:1"
 }
 
-probe_hypervisor(){
-  cat > .local_hosts <<EOF
-127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
-::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
-EOF
+probe_kvm(){
+#  cat > .local_hosts <<EOF
+#127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+#::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+#EOF
 
-  openstack compute service list -c "Host" -c "State" -f value|awk '/up/{print $1}'|sort -u > .all_hosts
-  dig $(cat .all_hosts | tr '\n' ' ')|awk '/ANSWER SECTION/{getline;print $NF"\t"$1}' >> .local_hosts
-  while read host;do
-    rsync -az -e "ssh " .local_hosts $host:/etc/hosts
-  done < .all_hosts
+#  openstack compute service list -c "Host" -c "State" -f value|awk '/up/{print $1}'|sort -u > .all_hosts
+#  dig $(cat .all_hosts | tr '\n' ' ')|awk '/ANSWER SECTION/{getline;print $NF"\t"$1}' >> .local_hosts
+#  while read host;do
+#    rsync -az -e "ssh " .local_hosts $host:/etc/hosts
+#  done < .all_hosts
 
-  openstack hypervisor list -c "Hypervisor Hostname" -f value | sort -u > .compute_hosts
-  diff .all_hosts .compute_hosts |awk '{if($2!="") print $2}' > .control_hosts
-  while read host;do
-    rsync -az -e "ssh " /etc/keystone/fernet-keys/ $host:/etc/keystone/fernet-keys/
-    rsync -az -e "ssh " /etc/keystone/credential-keys/ $host:/etc/keystone/credential-keys/
-  done < .control_hosts
-  rm -rf .*_hosts
+#  openstack hypervisor list -c "Hypervisor Hostname" -f value | sort -u > .compute_hosts
+#  diff .all_hosts .compute_hosts |awk '{if($2!="") print $2}' > .control_hosts
+#  while read host;do
+#    rsync -az -e "ssh " /etc/keystone/fernet-keys/ $host:/etc/keystone/fernet-keys/
+#    rsync -az -e "ssh " /etc/keystone/credential-keys/ $host:/etc/keystone/credential-keys/
+#  done < .control_hosts
+#  rm -rf .*_hosts
+
+  nova-manage cell_v2 discover_hosts --verbose
+  openstack hypervisor list --sort-column "State" --sort-descending
+  openstack service list --fit-width
 }
 
 
@@ -1746,48 +1923,89 @@ case $1 in
   placement_init)
 	[ $NODE_TYPE = "compute" ] && echo "Node is Compute!" && exit
   	placement_init;;
+  probe_kvm)
+	[ $NODE_TYPE = "compute" ] && echo "Node is Compute!" && exit
+	probe_kvm;;
   probe_ceph)
 	[ $NODE_TYPE = "compute" ] && echo "Node is Compute!" && exit
 	probe_ceph;;
   probe_gpu)
 	probe_gpu;;
-  probe_hypervisor)
-	[ $NODE_TYPE = "compute" ] && echo "Node is Compute!" && exit
-	probe_hypervisor;;
+  mkinitrd_vfio)
+	mkinitrd_vfio;;
   checkall)
-	if [ $NODE_TYPE = "control" ];then 
-	  SRV="httpd:80 mysql:3306 rabbitmq:4369 memcache:11211 nova:8774 cinder:8776 glance:9292 keystone:5000"
-	elif [ $NODE_TYPE = "network" ];then 
-	  SRV="neutron:9696"
+	SRV="libvirtd:16509 "
+	if [ $NODE_TYPE = "control" ] || [ $NODE_TYPE = "all" ];then
+	  SRV+=" mysql:3306 rabbitmq:4369 memcache:11211 glance:9292 cinder:8776 keystone:5000 httpd coredns nova-api:8774 nova-conductor:8775 nova-scheduler"
 	fi
-	SRV="$SRV nova-compute neutron-linuxbridge-agent"
+	if [ $NODE_TYPE = "network" ] || [ $NODE_TYPE = "all" ];then
+	  SRV+=" neutron-server:9696"
+	fi
+	SRV+=" nova-compute neutron-linuxbridge-agent cinder-volume"
+
 	for srv in $SRV;do
 	  ss=`echo $srv|awk -F: '{print $1}'`
 	  port=`echo $srv|awk -F: '{print $2}'`
 	  if [ -z $port ];then
-	    ps auxf|grep -iq $ss
+	    ps auxf|grep -v grep|grep -iq $ss
 	  else
 	    ss -tnplu|grep -q ":$port "
 	  fi
 	  if [ $? = 0 ];then
-  	    printf "%-28s is " $ss 
+  	    printf "%-28s :%-6d is " $ss $port 
   	    echo -en "${GREEN_COL}"
   	    printf "%-10s \n" "OK!"
 	  else
-  	    printf "%-28s is " $ss 
+  	    printf "%-28s :%-6d is " $ss $port 
   	    echo -en "${RED_COL}"
   	    printf "%-10s \n" "XXX"
 	  fi
   	  echo -en ${NORMAL_COL}
-	done;;
+	done
+	dig $(awk '/^domain/{print "db."$NF}' /etc/resolv.conf ) | grep -q '^db.*A.*[0-9*]'
+  	printf "%-28s :%-6d is " "DNS Service" 
+	if [ $? = 0 ] ;then
+  	    echo -en "${GREEN_COL}"
+  	    printf "%-10s \n" "OK!"
+	else
+  	    echo -en "${RED_COL}"
+  	    printf "%-10s \n" "XXX"
+	fi
+        echo -e ${YELLOW_COL}--------------- nova ---------------- ${NORMAL_COL}
+	NOVA=$(realpath /var/lib/nova/)
+	NOVA=${NOVA%/nova}
+	df -h | grep $NOVA | awk '{print $NF,"\t", $(NF-4),"\t", $(NF-1)}' | grep $NOVA --color
+        echo -e ${YELLOW_COL}--------------- vnc ----------------- ${NORMAL_COL}
+	grep novncproxy_base_url /etc/nova/nova.conf --color
+        echo -e ${YELLOW_COL}-------------- alias ---------------- ${NORMAL_COL}
+	grep -E "passthrough_whitelist|alias" /etc/nova/nova.conf --color
+	echo -e ${YELLOW_COL}------------- plugins --------------- ${NORMAL_COL}
+	grep service_plugins /etc/neutron/neutron.conf
+	echo -e ${YELLOW_COL}------------- bridge --------------- ${NORMAL_COL}
+	grep --color -iq "local_ip.*[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*" /etc/neutron/plugins/ml2/linuxbridge_agent.ini 
+	if [ $? = 0 ];then
+	  grep -i "local_ip.*[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*" /etc/neutron/plugins/ml2/linuxbridge_agent.ini 
+        else
+	  echo -e "bridge_agent local_ip is ${RED_COL}XXX${NORMAL_COL}"
+	fi
+	echo -e ${YELLOW_COL}--------------- pcis --------------- ${NORMAL_COL}
+	printf "%-10s = \t" "iommu_groups pcis"
+	if [ -z "$(ls -A  /sys/kernel/iommu_groups/)" ];then 
+	  echo -e "${RED_COL}No PCIe${NORMAL_COL}"
+	else
+	  ls -adl /sys/kernel/iommu_groups/* | wc -l
+	fi
+	echo -e ${YELLOW_COL}-------------- GPU ----------------- ${NORMAL_COL}
+	lspci -vv | awk '/VGA.+NVIDIA/{print $1}' | xargs -i sh -c 'echo -en {}; lspci -s {} -vvv | grep -i LnkSta: --color'
+	;;
   *)
 	check_env
-  	echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}adjust_sys|control_init|probe_ceph|probe_gpu|probe_hypervisor|checkall|env_clean"
-  	echo -e "${RED_COL}$SCRIPT ${GREEN_COL}keys_init|keys_addproj|keys_adduser|keys_addrole|keys_addsrv|keys_addept|keys_bind|keys_list"
+  	echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}adjust_sys|control_init|probe_kvm|probe_ceph|probe_gpu|checkall|env_clean"
+  	echo -e "${RED_COL}$SCRIPT ${GREEN_COL}keys_init|keys_addproj|keys_adduser|keys_addrole|keys_addsrv|keys_addept|keys_list"
   	echo -e "${RED_COL}$SCRIPT ${GREEN_COL}gls_init|gls_add|gls_show|gls_check|gls_restart"
   	echo -e "${RED_COL}$SCRIPT ${GREEN_COL}cinder_init|cinder_stop|cinder_start|cinder_restart|cinder_check"
   	echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}nova_init|nova_start|nova_stop|nova_restart|nova_addrule|nova_check"
   	echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}neutron_init|neutron_addnet|neutron_start|neutron_stop|neutron_restart|neutron_check"
-  	echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}octavia_init|octavia_addnet|octavia_start|octavia_stop|octavia_restart|octavia_check"
+  	#echo -e "${RED_COL}$SCRIPT ${YELLOW_COL}octavia_init|octavia_addnet|octavia_start|octavia_stop|octavia_restart|octavia_check"
   	echo -en ${NORMAL_COL}
 esac
